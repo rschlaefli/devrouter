@@ -228,7 +228,11 @@ export type NorthflankQualification = Record<
   boolean
 > & { outputExec?: boolean };
 class NorthflankFailure extends Error {}
-class NorthflankFenced extends Error {}
+class NorthflankFenced extends Error {
+  constructor(readonly noWriteStep?: string) {
+    super("Northflank operation was fenced.");
+  }
+}
 
 /** Installation-owned policy. Qualification is false until the producing live trial proves it. */
 export class NorthflankPreviewProvider implements PreviewProvider {
@@ -271,12 +275,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         "Northflank preview plan is unsupported by installed policy.",
       );
     }
-    if (
-      graph.secretBindings.some((group) =>
-        Object.values(group.variables).some((binding) => "output" in binding),
-      ) &&
-      this.options.qualification.outputExec !== true
-    )
+    if (outputNames(graph).length > 0 && this.options.qualification.outputExec !== true)
       throw new PreviewAdmissionRefused(
         "provider-unqualified",
         "Northflank output command qualification is incomplete.",
@@ -343,14 +342,8 @@ export class NorthflankPreviewProvider implements PreviewProvider {
             resource.reference.startsWith("r_") &&
             !selected.has(resource.reference),
         ).length ?? 0;
-      const outputs = new Set(
-        graph.secretBindings.flatMap((group) =>
-          Object.values(group.variables).flatMap((binding) =>
-            "output" in binding ? [binding.output] : [],
-          ),
-        ),
-      );
-      if (8 + graph.secretBindings.length * 2 + outputs.size + deselected > 144)
+      const outputs = outputNames(graph);
+      if (8 + graph.secretBindings.length * 2 + outputs.length + deselected > 144)
         return {
           ...(previousOwnership
             ? this.receipt(previousOwnership, true)
@@ -483,15 +476,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         bindings(owned),
       );
       owned = await this.deliver(gate, owned, store, configured, "pre");
-      const outputs = [
-        ...new Set(
-          configured.secretBindings.flatMap((group) =>
-            Object.values(group.variables).flatMap((binding) =>
-              "output" in binding ? [binding.output] : [],
-            ),
-          ),
-        ),
-      ].sort();
+      const outputs = outputNames(configured);
       if (outputs.length) {
         if (this.options.qualification.outputExec !== true)
           throw new NorthflankFailure("Northflank output command qualification is incomplete.");
@@ -526,12 +511,18 @@ export class NorthflankPreviewProvider implements PreviewProvider {
               : record(deployment.external).imagePath !== recipe.image)
           )
             throw new NorthflankFailure("Northflank output source revision differs.");
+          const recipient = configured.secretBindings.find((group) =>
+            Object.values(group.variables).some(
+              (binding) => "output" in binding && binding.output === name,
+            ),
+          );
+          if (!recipient) throw new NorthflankFailure("Northflank output recipient is missing.");
           if (
             (await begin(
               gate,
               step,
               "convergent",
-              digest({ output: name, group: recipientReference(configured, name) }),
+              digest({ output: name, group: recipient.groupRef }),
             )) !== "write"
           )
             throw new NorthflankFenced();
@@ -544,19 +535,13 @@ export class NorthflankPreviewProvider implements PreviewProvider {
           } catch {
             throw new NorthflankFailure("Northflank output command failed.");
           }
-          if (await gate.fenced()) throw new NorthflankFenced();
+          if (await gate.fenced()) throw new NorthflankFenced(step);
           if (value.endsWith("\n")) value = value.slice(0, -1);
           if (Buffer.byteLength(value) > output.maxBytes || !new RegExp(output.pattern).test(value))
             throw new NorthflankFailure("Northflank output command returned an invalid value.");
           const previousValue = this.peerValue(peers, "output", name, owned);
           if (previousValue !== undefined && previousValue !== value)
             throw new NorthflankFailure("Northflank output differs from persisted recipients.");
-          const recipient = configured.secretBindings.find((group) =>
-            Object.values(group.variables).some(
-              (binding) => "output" in binding && binding.output === name,
-            ),
-          );
-          if (!recipient) throw new NorthflankFailure("Northflank output recipient is missing.");
           const peer = peers.find((peer) => peer.resource.reference === recipient.groupRef);
           if (!peer) throw new NorthflankFailure("Northflank output recipient is unowned.");
           const variables = { ...peer.variables };
@@ -578,8 +563,11 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       return { ...this.receipt(owned, true), ready: true };
     } catch (error) {
       // Native details and injected values never become controller errors or status text.
-      if (error instanceof NorthflankFenced)
+      if (error instanceof NorthflankFenced) {
+        if (error.noWriteStep)
+          await gate.record(error.noWriteStep, "accepted", "cancelled-before-write");
         return this.settleFenced(effect, entry, gate, owned, store);
+      }
       if (
         !(error instanceof NorthflankFailure) &&
         !(error instanceof NorthflankOutcomeUncertain) &&
@@ -600,6 +588,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       resource: NorthflankOwnedResource;
       variables: Record<string, string>;
       details: Record<string, unknown>;
+      environment: NonNullable<NorthflankGraphPolicy["resources"][string]["environment"]>;
     }> = [];
     for (const resource of owned.resources.filter(
       (item) => item.kind === "secrets" && item.reference.startsWith("e_"),
@@ -647,7 +636,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         )
       )
         throw new NorthflankFailure("Northflank secret group contains undeclared variables.");
-      peers.push({ resource, variables, details });
+      peers.push({ resource, variables, details, environment: configured });
     }
     return peers;
   }
@@ -659,11 +648,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
   ): string | undefined {
     const values = new Set<string>();
     for (const peer of peers) {
-      const settings = Object.entries(this.options.graph.resources).find(
-        ([id]) => `e_${id.replaceAll("-", "_")}` === peer.resource.reference,
-      )?.[1];
-      if (!settings) throw new NorthflankFailure("Northflank peer policy is missing.");
-      for (const [key, binding] of Object.entries(settings.environment ?? {}))
+      for (const [key, binding] of Object.entries(peer.environment))
         if (
           (kind === "generated" && "generated" in binding && binding.generated === name) ||
           (kind === "output" && "output" in binding && binding.output === name)
@@ -736,8 +721,8 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       )) !== "write"
     )
       throw new NorthflankFenced();
-    if (started && (await begin(gate, step, "convergent", previous?.fingerprint)) !== "write")
-      throw new NorthflankFenced();
+    if (started && (await gate.begin(step, "convergent", previous?.fingerprint)) === "fenced")
+      throw new NorthflankFenced(step);
     if (!equal(peer.variables)) {
       try {
         await this.options.api.request("PATCH", ["secrets", peer.resource.id], {
@@ -1224,15 +1209,14 @@ async function begin(
   return result;
 }
 
-function recipientReference(
-  graph: ReturnType<typeof compileNorthflankGraph>,
-  name: string,
-): string {
-  const group = graph.secretBindings.find((group) =>
-    Object.values(group.variables).some(
-      (binding) => "output" in binding && binding.output === name,
+function outputNames(graph: ReturnType<typeof compileNorthflankGraph>): string[] {
+  return [
+    ...new Set(
+      graph.secretBindings.flatMap((group) =>
+        Object.values(group.variables).flatMap((binding) =>
+          "output" in binding ? [binding.output] : [],
+        ),
+      ),
     ),
-  );
-  if (!group) throw new NorthflankFailure("Northflank output recipient is missing.");
-  return group.groupRef;
+  ].sort();
 }

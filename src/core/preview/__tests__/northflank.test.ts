@@ -1259,6 +1259,7 @@ function providerFixture(
   let wipeAtSource = false;
   let sourceWithoutGeneratedMarker = false;
   let forgeOutputSource = false;
+  let refreshDuringOutput = false;
   let outputValue = "abcdef0123456789".repeat(2);
   const outputCalls: Array<{ id: string; argv: string[] }> = [];
   let pendingBootstrap = false;
@@ -1501,6 +1502,12 @@ function providerFixture(
   });
   api.execServiceCommand = async (id, argv) => {
     outputCalls.push({ id, argv });
+    if (refreshDuringOutput) {
+      refreshDuringOutput = false;
+      desiredPlan = structuredClone(entry.plan);
+      desiredPlan.source!.head = "f".repeat(40);
+      await command("refresh-during-output", { kind: "start", aliases: ["web"] });
+    }
     return `${outputValue}\n`;
   };
   const qualification = {
@@ -1579,6 +1586,9 @@ function providerFixture(
       wipeAtSource = true;
     },
     sourceWithoutGeneratedMarker: () => sourceWithoutGeneratedMarker,
+    refreshDuringOutput: () => {
+      refreshDuringOutput = true;
+    },
     forgeOutputSource: () => {
       forgeOutputSource = true;
     },
@@ -1723,6 +1733,56 @@ describe("Northflank generation credential delivery", () => {
     const next = [...f.allocations.values()].find((item) => item.kind === "secrets")!.secrets
       .variables.PASSWORD;
     expect(next).not.toBe(password);
+  });
+
+  it("cancels an output read superseded before any write without tearing down the generation", async () => {
+    const f = credentialProviderFixture();
+    f.refreshDuringOutput();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    const ready = await f.reconcile(20);
+    expect(ready?.session.status).toBe("ready");
+    expect(ready?.session.desiredRevision).toBe("f".repeat(40));
+    expect(f.mutations.some((mutation) => mutation.startsWith("DELETE"))).toBe(false);
+    expect(f.outputCalls).toHaveLength(2);
+  });
+
+  it("counts retained deselected services before the first native effect write", async () => {
+    for (const count of [132, 133]) {
+      const f = credentialProviderFixture(false);
+      await f.command("start", { kind: "start", aliases: ["web"] });
+      const entry = await f.reconcile();
+      expect(entry?.session.status).toBe("ready");
+      const row = f.records.get(`installations/fixture/northflank/${entry!.session.generation}`)!;
+      const owned = row.value as { resources: unknown[] };
+      owned.resources.push(
+        ...Array.from({ length: count }, (_, index) => ({
+          reference: `r_old_${index}`,
+          kind: "services",
+          id: `old-${index}`,
+          name: `old-${index}`,
+          uid: "e".repeat(24),
+        })),
+      );
+      const mutations = f.mutations.length;
+      const gate: PreviewWriteGate = {
+        read: async () => [],
+        fenced: async () => true,
+        begin: async () => {
+          throw new Error("Unexpected write intent");
+        },
+        record: async () => {
+          throw new Error("Unexpected write receipt");
+        },
+      };
+      const receipt = await f.provider.observe(
+        { id: "bound-check", kind: "deploy", generation: entry!.session.generation } as any,
+        entry!,
+        gate,
+      );
+      expect(receipt.outcome).toBe(count === 132 ? "cancelled" : "failed");
+      expect(receipt.cleanupRequired === true).toBe(count === 133);
+      expect(f.mutations).toHaveLength(mutations);
+    }
   });
 
   it("bounds repeated output progress and verifies partial recipient adoption", async () => {
