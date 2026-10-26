@@ -642,9 +642,8 @@ export function compileNorthflankGraph(
       const protocol = settings.portProtocols?.[port.name] ?? "HTTP";
       if (!["HTTP", "TCP", "UDP"].includes(protocol) || (port.public && protocol !== "HTTP"))
         throw new Error("Northflank non-HTTP service ports must remain private.");
-      const domains = port.public ? [new URL(origin(resource.id, port.name)).hostname] : [];
       if (port.public) {
-        const hostname = domains[0];
+        const hostname = new URL(origin(resource.id, port.name)).hostname;
         if (!owned.domains.includes(hostname))
           prepare.push(
             node(
@@ -730,7 +729,7 @@ export function compileNorthflankGraph(
             public: resource.ports?.[index].public === true,
             domains:
               resource.ports?.[index].public === true
-                ? [new URL(origin(resource.id, resource.ports[index].name)).hostname]
+                ? [new URL(origin(resource.id, port.name)).hostname]
                 : [],
           })),
         }),
