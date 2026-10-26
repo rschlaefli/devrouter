@@ -14,6 +14,11 @@ afterEach(() => {
 });
 
 describe("canonical environment commands", () => {
+  it("refuses combining stop recovery with deletion before supervision", async () => {
+    await expect(runStopCommand({ path: "/repo", repair: true, delete: true })).rejects.toThrow();
+    expect(superviseLifecycle).not.toHaveBeenCalled();
+  });
+
   it("preserves proven absence in stop JSON", async () => {
     const result = {
       kind: "linked",
