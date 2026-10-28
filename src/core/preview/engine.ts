@@ -386,6 +386,8 @@ export class PreviewEngine {
         const entry = pool.sessions[id];
         if (entry.imageDeadline === undefined) entry.imageStartedAt = now;
         entry.imageReadyAt = undefined;
+        if (entry.session.provisioningStartedAt === undefined)
+          entry.session.status = "waiting-images";
         entry.imageDeadline ??= Math.min(
           now + 45 * 60_000,
           entry.session.firstReadyAt === undefined

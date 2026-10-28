@@ -655,4 +655,16 @@ describe("CI image waiting", () => {
     await f.engine.reconcile(identity);
     expect((await f.engine.status(identity))?.session.status).toBe("ready");
   });
+  it("keeps an initial image wait across an explicit newer revision", async () => {
+    const f = fixture({ prepare: async (entry) => ready(entry) });
+    await f.admit("images", identity, selected);
+    f.time(25 * 60_000);
+    await f.admit("newer", identity, {
+      ...selected,
+      source: { ...selected.source!, head: "9".repeat(40) },
+    });
+    await f.engine.reconcile(identity);
+    expect((await f.engine.status(identity))?.session.provisioningStartedAt).toBe(f.now());
+    expect(f.calls).toEqual([]);
+  });
 });
