@@ -289,7 +289,7 @@ export function preparePreviewImageRequest(
     if (resource.imageTarget === undefined) continue;
     const target = {
       target: readName(resource.imageTarget, `resources.${resource.id}.imageTarget`),
-      configuration: configurations[resource.id] ?? {},
+      configuration: Object.hasOwn(configurations, resource.id) ? configurations[resource.id] : {},
     };
     const digest = imageConfigurationDigest(target.configuration);
     const key = targetKey(target.target, digest);
@@ -531,10 +531,6 @@ export function resolvePreviewImages(
   };
 }
 
-function imageDigest(value: unknown, label: string): `sha256:${string}` {
-  return readDigest(value, label);
-}
-
 export function selectOciPlatformDigest(
   indexValue: unknown,
   platformValue: PreviewImagePlatform,
@@ -565,7 +561,7 @@ export function selectOciPlatformDigest(
       continue;
     }
     if (descriptorPlatform.os === os && descriptorPlatform.architecture === architecture) {
-      matches.push(imageDigest(descriptor.digest, `OCI image index manifests[${position}].digest`));
+      matches.push(readDigest(descriptor.digest, `OCI image index manifests[${position}].digest`));
     }
   }
   if (matches.length === 0) fail(`OCI image index does not contain ${platform}.`);

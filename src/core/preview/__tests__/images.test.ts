@@ -82,6 +82,13 @@ function receipt(overrides: Record<string, unknown> = {}): Record<string, unknow
 }
 
 describe("preview images", () => {
+  it("defaults absent configuration even for an inherited object property name", () => {
+    const selected = plan();
+    selected.resources = [{ id: "constructor", kind: "service", imageTarget: "runtime" }];
+    expect(preparePreviewImageRequest(selected, requestInput()).request.targets).toEqual([
+      { target: "runtime", configuration: {} },
+    ]);
+  });
   it("canonicalizes configuration and deduplicates shared target/configuration pairs", () => {
     const prepared = preparePreviewImageRequest(plan(), requestInput());
 
