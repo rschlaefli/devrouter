@@ -263,7 +263,14 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     try {
       graph = compileNorthflankGraph(
         {
-          plan,
+          plan: {
+            ...plan,
+            resources: plan.resources.map((resource) => {
+              if (!resource.imageTarget) return resource;
+              const { imageTarget: _target, ...rest } = resource;
+              return { ...rest, image: `registry.example/qualification@sha256:${"0".repeat(64)}` };
+            }),
+          },
           session: { generation: "0".repeat(24), desiredRevision: plan.source?.head },
         } as PreviewPoolEntry,
         this.options.graph,
@@ -1186,7 +1193,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         Object.values(entry.operations).every(
           (operation) =>
             operation.phase === "terminal" &&
-            !operation.steps?.length &&
+            (operation.kind === "images" || !operation.steps?.length) &&
             operation.resources.length === 0,
         )
       );

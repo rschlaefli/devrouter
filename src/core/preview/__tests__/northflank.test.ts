@@ -2362,3 +2362,40 @@ describe("Northflank provider lifecycle", () => {
     expect(f.mutations).toEqual([]);
   });
 });
+
+describe("CI external image graph", () => {
+  it("emits immutable deployments and scoped pull IDs with no build nodes", () => {
+    const { entry, policy } = graphFixture();
+    policy.platform = "linux/amd64";
+    policy.registryCredentials = { "example/web": "preview-pull" };
+    const graph = compileNorthflankGraph(entry, policy, "prepare");
+    const nodes = graph.spec.spec.steps;
+    expect(nodes.some((node) => ["Build", "BuildService"].includes(node.kind))).toBe(false);
+    const web = nodes.find((node) => node.kind === "DeploymentService");
+    expect(web?.spec.infrastructure).toEqual({ architecture: "x86" });
+    expect((web?.spec.deployment as { external: unknown } | undefined)?.external).toEqual({
+      imagePath: entry.plan.resources[2].image,
+      credentials: "preview-pull",
+    });
+  });
+  it("derives complete public CI configuration without requiring native ownership", () => {
+    const { entry, policy } = graphFixture();
+    delete entry.plan.resources[2].image;
+    entry.plan.resources[2].imageTarget = "web";
+    policy.resources.web.publicBuildEnvironment = {
+      CONFIG: {
+        json: {
+          APP_ORIGIN: { origin: "web", port: "http" },
+          SSR: { service: "web", port: "http", format: "http-url" },
+        },
+      },
+    };
+    const context = compileNorthflankGraph(entry, policy, "context");
+    expect(context.spec.spec.steps).toEqual([]);
+    expect(JSON.parse(context.publicBuildEnvironment.web.CONFIG)).toMatchObject({
+      APP_ORIGIN: expect.stringContaining("preview.example.org"),
+      SSR: expect.stringContaining("http://"),
+    });
+    expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
+  });
+});

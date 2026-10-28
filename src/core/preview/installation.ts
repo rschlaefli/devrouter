@@ -13,6 +13,7 @@ import {
   PreviewControlUnavailable,
   PreviewForgeRejected,
 } from "./forge/status";
+import { commandImageBackend } from "./image-command";
 import { parsePreviewManifest } from "./manifest";
 import { buildPreviewPlan, listPreviewAliases } from "./plan";
 import {
@@ -123,15 +124,11 @@ export function loadPreviewInstallation(
   if (!Array.isArray(raw.projects) || raw.projects.length < 1 || raw.projects.length > 16)
     throw new Error("Preview installation requires 1-16 registered projects.");
   const projects = raw.projects.map((input) => {
-    const row = object(input, [
-      "key",
-      "forge",
-      "config",
-      "manifest",
-      "northflank",
-      "hourlyCents",
-      "acceptance",
-    ]);
+    const row = object(
+      input,
+      ["key", "forge", "config", "manifest", "northflank", "hourlyCents", "acceptance"],
+      ["images"],
+    );
     const key = text(row.key, /^[a-z][a-z0-9-]{0,62}$/);
     const forgePolicy = object(
       row.forge,
@@ -280,6 +277,76 @@ export function loadPreviewInstallation(
         source,
         ...(aliases?.length ? { aliases } : {}),
       });
+    const imagePolicy =
+      row.images === undefined
+        ? undefined
+        : object(row.images, [
+            "platform",
+            "platformQualified",
+            "producer",
+            "command",
+            "files",
+            "environment",
+          ]);
+    if (
+      imagePolicy &&
+      (imagePolicy.platformQualified !== true || graph.platform !== imagePolicy.platform)
+    )
+      throw new Error("CI image runtime platform requires matching installed qualification.");
+    const imageEnvironment = imagePolicy ? imagePolicy.environment : [];
+    if (!Array.isArray(imageEnvironment) || imageEnvironment.length > 32)
+      throw new Error("Invalid image resolver environment.");
+    const imageEnvNames = imageEnvironment.map(envName);
+    const producer = imagePolicy
+      ? object(imagePolicy.producer, ["repository", "workflow", "controlRevision"])
+      : undefined;
+    if (imagePolicy && (!Array.isArray(imagePolicy.files) || imagePolicy.files.length > 32))
+      throw new Error("Invalid reviewed image resolver files.");
+    const imageFiles = imagePolicy
+      ? (imagePolicy.files as unknown[]).map((input) => {
+          const item = object(input, ["file", "sha256"]);
+          const verified = control(input);
+          return {
+            path: fs.realpathSync(path.join(root, item.file as string)),
+            sha256: verified.digest,
+          };
+        })
+      : [];
+    if (
+      imagePolicy &&
+      (!Array.isArray(imagePolicy.command) ||
+        imagePolicy.command.some((arg) => typeof arg !== "string"))
+    )
+      throw new Error("Invalid installed image resolver command.");
+    const images = imagePolicy
+      ? commandImageBackend({
+          command: imagePolicy.command as string[],
+          files: imageFiles,
+          cwd: root,
+          platform: text(imagePolicy.platform, /^linux\/(amd64|arm64)$/) as
+            | "linux/amd64"
+            | "linux/arm64",
+          producer: {
+            repository: text(producer?.repository, /^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)+$/),
+            workflow: text(producer?.workflow, /^(?!.*\.\.)[A-Za-z0-9_./-]+$/),
+            controlRevision: text(producer?.controlRevision, /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/),
+          },
+          environment: {
+            PATH: process.env.PATH,
+            ...Object.fromEntries(imageEnvNames.map((name) => [name, environment[name]])),
+          },
+          context: (entry) => {
+            const context = compileNorthflankGraph(entry, graph, "context").publicBuildEnvironment;
+            return Object.fromEntries(
+              entry.plan.resources
+                .filter((resource) => resource.imageTarget)
+                .map((resource) => [resource.id, context[resource.id]]),
+            );
+          },
+        })
+      : undefined;
+    if (Object.values(manifest.resources).some((resource) => resource.imageTarget) && !images)
+      throw new Error("CI image targets require installed image coordination.");
     const aliases = listPreviewAliases(manifest);
     for (const alias of aliases) {
       const checked = plan(
@@ -296,7 +363,14 @@ export function loadPreviewInstallation(
         throw new Error("Installed preview alias cannot be resolved.");
       compileNorthflankGraph(
         {
-          plan: checked,
+          plan: {
+            ...checked,
+            resources: checked.resources.map((resource) => {
+              if (!resource.imageTarget) return resource;
+              const { imageTarget: _target, ...rest } = resource;
+              return { ...rest, image: `registry.example/qualification@sha256:${"0".repeat(64)}` };
+            }),
+          },
           session: { generation: "0".repeat(24), desiredRevision: checked.source?.head },
         } as PreviewPoolEntry,
         graph,
@@ -318,6 +392,8 @@ export function loadPreviewInstallation(
       rates,
       tokens: [forgePolicy.tokenEnv, northflank.tokenEnv],
       secrets,
+      images,
+      imageEnvNames,
     };
   });
   if (
@@ -339,7 +415,7 @@ export function loadPreviewInstallation(
   const controlTokens = new Set([
     ...(federated ? Object.values(federated) : [statePolicy.tokenEnv]),
     "DEVROUTER_PREVIEW_CREDENTIALS",
-    ...projects.flatMap((project) => project.tokens),
+    ...projects.flatMap((project) => [...project.tokens, ...project.imageEnvNames]),
   ]);
   if (
     projects.some((project) =>
@@ -356,6 +432,17 @@ export function loadPreviewInstallation(
   const engine = new PreviewEngine({
     store,
     provider,
+    images: {
+      prepare: (entry, gate) => {
+        const project = projects.find(
+          (project) =>
+            project.host === entry.identity?.forgeHost &&
+            project.projectId === entry.identity?.projectId,
+        );
+        if (!project?.images) throw new Error("Image backend is not installed for this project.");
+        return project.images.prepare(entry, gate);
+      },
+    },
     now,
     workerId: randomUUID(),
     policy: {

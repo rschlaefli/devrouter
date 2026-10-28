@@ -34,7 +34,7 @@ const plan: PreviewPlanReport = {
   },
 };
 
-function fixture() {
+function fixture(images?: import("../images").PreviewImageBackend) {
   let now = 1_700_000_000_000;
   let version = 1;
   let pool = createPreviewPool("test");
@@ -90,8 +90,15 @@ function fixture() {
     manifestDigests: [plan.manifestDigest],
     localConfigDigests: [plan.localConfigDigest],
   };
-  const engine = new PreviewEngine({ store, policy, provider, workerId: "one", now: () => now });
-  const admit = (commandId = "start", previewIdentity = identity) =>
+  const engine = new PreviewEngine({
+    store,
+    policy,
+    provider,
+    images,
+    workerId: "one",
+    now: () => now,
+  });
+  const admit = (commandId = "start", previewIdentity = identity, selectedPlan = plan) =>
     engine.admit({
       identity: previewIdentity,
       commandId,
@@ -101,7 +108,7 @@ function fixture() {
       open: true,
       sameProject: true,
       command: { kind: "start", aliases: ["chat"] },
-      plan,
+      plan: selectedPlan,
       hourlyCents: 10,
     });
   return {
@@ -550,5 +557,77 @@ describe("durable preview reconciliation", () => {
           now: f.now,
         }),
     ).toThrow("at most four");
+  });
+});
+
+describe("CI image waiting", () => {
+  const selected: PreviewPlanReport = {
+    ...plan,
+    resources: [{ id: "web", kind: "service", imageTarget: "web" }],
+  };
+  const ready = (entry: PreviewPoolEntry) => ({
+    phase: "ready" as const,
+    plan: {
+      ...entry.plan,
+      resources: entry.plan.resources.map(({ imageTarget: _target, ...resource }) => ({
+        ...resource,
+        image: `registry.example/app@sha256:${"1".repeat(64)}`,
+      })),
+    },
+  });
+  it("allocates nothing while images wait and starts native setup once on admission", async () => {
+    let available = false;
+    const f = fixture({
+      prepare: async (entry) => (available ? ready(entry) : { phase: "pending" }),
+    });
+    await f.admit("images", identity, selected);
+    await f.engine.reconcile(identity);
+    f.time(25 * 60_000);
+    await f.engine.reconcile(identity);
+    expect(f.calls).toEqual([]);
+    expect((await f.engine.status(identity))?.session.status).toBe("waiting-images");
+    available = true;
+    await f.engine.reconcile(identity);
+    const entry = await f.engine.status(identity);
+    expect(entry?.session.provisioningStartedAt).toBe(f.now());
+    expect(entry?.session.setupDeadline).toBe(f.now() + 20 * 60_000);
+    expect(entry?.imageReadyAt).toBe(f.now());
+    await f.engine.reconcile(identity);
+    expect(f.calls).toEqual(["deadline"]);
+  });
+  it("stop fences a late image result without allocating provider resources", async () => {
+    let release: (value: ReturnType<typeof ready>) => void = () => {};
+    const f = fixture({
+      prepare: (entry) =>
+        new Promise((resolve) => {
+          release = () => resolve(ready(entry));
+        }),
+    });
+    await f.admit("images", identity, selected);
+    const pending = f.engine.reconcile(identity);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await f.engine.admit({
+      identity,
+      commandId: "stop",
+      createdAt: f.now(),
+      actorCanWrite: true,
+      originalHumanRoot: true,
+      open: true,
+      sameProject: true,
+      command: { kind: "stop" },
+    });
+    release({} as ReturnType<typeof ready>);
+    await pending;
+    await f.engine.reconcile(identity);
+    expect(f.calls).toEqual([]);
+    expect((await f.engine.status(identity))?.session.status).toBe("stopped");
+  });
+  it("expires an image wait without extending into native provisioning", async () => {
+    const f = fixture({ prepare: async () => ({ phase: "pending" }) });
+    await f.admit("images", identity, selected);
+    f.time(45 * 60_000);
+    await f.engine.reconcile(identity);
+    expect(f.calls).toEqual([]);
+    expect((await f.engine.status(identity))?.session.status).toBe("stopped");
   });
 });
