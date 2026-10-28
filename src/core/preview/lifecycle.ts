@@ -211,7 +211,12 @@ export function transitionPreviewSession(
       next.desiredRevision = event.revision;
       next.desiredAliases = aliases;
       next.operationVersion = increment(session.operationVersion);
-      next.status = session.firstReadyAt === undefined ? "provisioning" : "updating";
+      next.status =
+        session.status === "waiting-images"
+          ? "waiting-images"
+          : session.firstReadyAt === undefined
+            ? "provisioning"
+            : "updating";
       next.stale = false;
       return next;
     }

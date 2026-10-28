@@ -667,4 +667,36 @@ describe("CI image waiting", () => {
     expect((await f.engine.status(identity))?.session.provisioningStartedAt).toBe(f.now());
     expect(f.calls).toEqual([]);
   });
+  it("starts the native clock for a newer non-CI source after an initial wait", async () => {
+    const f = fixture({ prepare: async () => ({ phase: "pending" }) });
+    await f.admit("images", identity, selected);
+    f.time(25 * 60_000);
+    await f.admit("pinned", identity, {
+      ...plan,
+      source: { ...plan.source!, head: "9".repeat(40) },
+    });
+    expect((await f.engine.status(identity))?.session.provisioningStartedAt).toBe(f.now());
+    await f.engine.reconcile(identity);
+    expect(f.calls).toEqual(["deadline"]);
+  });
+  it.each([
+    false,
+    true,
+  ])("preserves legacy clocks when an existing session selects CI images (ready=%s)", async (alreadyReady) => {
+    const f = fixture({ prepare: async (entry) => ready(entry) });
+    await f.admit();
+    if (alreadyReady) for (let step = 0; step < 4; step++) await f.engine.reconcile(identity);
+    const before = (await f.engine.status(identity))!.session;
+    delete f.snapshot().sessions[previewIdentityKey(identity)].session.provisioningStartedAt;
+    f.time(60_000);
+    await f.admit("update", identity, {
+      ...selected,
+      source: { ...selected.source!, head: alreadyReady ? "9".repeat(40) : plan.source!.head },
+    });
+    for (let step = 0; step < 2; step++) await f.engine.reconcile(identity);
+    const after = (await f.engine.status(identity))!.session;
+    expect(after.provisioningStartedAt).toBe(before.createdAt);
+    expect(after.expiresAt).toBe(before.expiresAt);
+    expect(after.status).not.toBe("waiting-images");
+  });
 });

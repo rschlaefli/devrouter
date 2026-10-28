@@ -397,7 +397,7 @@ export class PreviewEngine {
       } else if (input.command.kind === "start") {
         const entry = pool.sessions[id];
         entry.imageDeadline = undefined;
-        if (entry.session.status === "waiting-images")
+        if (entry.session.provisioningStartedAt === undefined)
           entry.session = transitionPreviewSession(entry.session, { kind: "images-ready", now });
       }
       const active = Object.values(pool.sessions).filter(

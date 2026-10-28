@@ -210,6 +210,9 @@ function decodeSession(value: unknown): import("./lifecycle").PreviewSession {
   }
   if (row.firstReadyAt !== undefined) integer(row.firstReadyAt);
   if (row.provisioningStartedAt !== undefined) integer(row.provisioningStartedAt);
+  // Older records started provisioning at creation and have no separate clock field.
+  if (row.provisioningStartedAt === undefined && row.status !== "waiting-images")
+    row.provisioningStartedAt = row.createdAt;
   const session = row as unknown as import("./lifecycle").PreviewSession;
   if (
     session.setupDeadline !== (session.provisioningStartedAt ?? session.createdAt) + 20 * 60_000 ||
