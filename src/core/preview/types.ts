@@ -16,6 +16,7 @@ type PreviewResource = {
   kind: PreviewResourceKind;
   dependsOn?: string[];
   image?: string;
+  imageTarget?: string;
   build?: PreviewBuild;
   ports?: PreviewPort[];
   command?: string[];

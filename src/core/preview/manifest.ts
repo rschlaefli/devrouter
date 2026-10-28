@@ -211,7 +211,9 @@ function parseResources(value: unknown): PreviewManifest["resources"] {
     requireFields(
       definition,
       ["kind"],
-      isContainer ? ["image", "build", "dependsOn", "ports", "command"] : ["dependsOn"],
+      isContainer
+        ? ["image", "build", "imageTarget", "dependsOn", "ports", "command"]
+        : ["dependsOn"],
       `resources.${id}`,
     );
 
@@ -227,8 +229,10 @@ function parseResources(value: unknown): PreviewManifest["resources"] {
 
     const hasImage = Object.hasOwn(definition, "image") && definition.image !== undefined;
     const hasBuild = Object.hasOwn(definition, "build") && definition.build !== undefined;
-    if (hasImage === hasBuild) {
-      fail(`resources.${id} must define exactly one of image or build.`);
+    const hasImageTarget =
+      Object.hasOwn(definition, "imageTarget") && definition.imageTarget !== undefined;
+    if ([hasImage, hasBuild, hasImageTarget].filter(Boolean).length !== 1) {
+      fail(`resources.${id} must define exactly one of image, build or imageTarget.`);
     }
 
     let ports: NonNullable<PreviewManifest["resources"][string]["ports"]> | undefined;
@@ -250,6 +254,9 @@ function parseResources(value: unknown): PreviewManifest["resources"] {
         ...common,
         ...(hasImage ? { image: readImage(definition.image, `resources.${id}.image`) } : {}),
         ...(hasBuild ? { build: readBuild(definition.build, `resources.${id}.build`) } : {}),
+        ...(hasImageTarget
+          ? { imageTarget: readName(definition.imageTarget, `resources.${id}.imageTarget`) }
+          : {}),
         ...(ports ? { ports } : {}),
         ...(definition.command === undefined
           ? {}

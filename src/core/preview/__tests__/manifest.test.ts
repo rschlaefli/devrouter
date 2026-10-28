@@ -86,6 +86,15 @@ describe("preview manifest", () => {
     });
     expect(manifest.bindings.processes.cleanup).toEqual([]);
     expect(manifest.selection.allowedUnions).toEqual([["web", "data"]]);
+
+    expect(
+      parsePreviewManifest(
+        validSource().replace(
+          "build:\n      context: .\n      dockerfile: Dockerfile\n      target: runtime",
+          "imageTarget: runtime",
+        ),
+      ).resources.web,
+    ).toMatchObject({ imageTarget: "runtime" });
   });
 
   it("rejects unknown fields, invalid resource shapes and unsafe paths", () => {
@@ -95,6 +104,11 @@ describe("preview manifest", () => {
     expect(() =>
       parsePreviewManifest(
         validSource().replace("kind: service", "kind: service\n    image: nginx"),
+      ),
+    ).toThrow();
+    expect(() =>
+      parsePreviewManifest(
+        validSource().replace("kind: service", "kind: service\n    imageTarget: Runtime"),
       ),
     ).toThrow();
     expect(() =>
