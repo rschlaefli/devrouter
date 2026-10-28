@@ -630,4 +630,29 @@ describe("CI image waiting", () => {
     expect(f.calls).toEqual([]);
     expect((await f.engine.status(identity))?.session.status).toBe("stopped");
   });
+  it("does not restart a native setup clock on another explicit start", async () => {
+    const f = fixture({ prepare: async (entry) => ready(entry) });
+    await f.admit("images", identity, selected);
+    await f.engine.reconcile(identity);
+    const before = (await f.engine.status(identity))!.session;
+    f.time(60_000);
+    await f.admit("again", identity, selected);
+    await f.engine.reconcile(identity);
+    const after = (await f.engine.status(identity))!.session;
+    expect(after.provisioningStartedAt).toBe(before.provisioningStartedAt);
+    expect(after.setupDeadline).toBe(before.setupDeadline);
+    expect(after.expiresAt).toBe(before.expiresAt);
+  });
+  it("discards an abandoned image deadline when switching to a pinned plan", async () => {
+    const f = fixture({ prepare: async () => ({ phase: "pending" }) });
+    await f.admit("images", identity, selected);
+    await f.engine.reconcile(identity);
+    f.time(60_000);
+    await f.admit("pinned", identity, plan);
+    expect((await f.engine.status(identity))?.imageDeadline).toBeUndefined();
+    for (let step = 0; step < 4; step++) await f.engine.reconcile(identity);
+    f.time(45 * 60_000);
+    await f.engine.reconcile(identity);
+    expect((await f.engine.status(identity))?.session.status).toBe("ready");
+  });
 });

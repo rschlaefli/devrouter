@@ -369,6 +369,7 @@ export class PreviewEngine {
               revision: plan.source.head,
               aliases: plan.aliases,
               commandId: input.commandId,
+              waitForImages: plan.resources.some((resource) => resource.imageTarget),
             }),
             plan,
             hourlyCents: hourly,
@@ -391,7 +392,11 @@ export class PreviewEngine {
             ? Number.MAX_SAFE_INTEGER
             : entry.session.expiresAt,
         );
-        if (entry.session.firstReadyAt === undefined) entry.session.status = "waiting-images";
+      } else if (input.command.kind === "start") {
+        const entry = pool.sessions[id];
+        entry.imageDeadline = undefined;
+        if (entry.session.status === "waiting-images")
+          entry.session = transitionPreviewSession(entry.session, { kind: "images-ready", now });
       }
       const active = Object.values(pool.sessions).filter(
         (entry) => entry.session.reservationHeld,
@@ -514,19 +519,18 @@ export class PreviewEngine {
         entry.session = transitionPreviewSession(entry.session, { kind: "stop", now });
       entry.session = transitionPreviewSession(entry.session, { kind: "tick", now });
       const session = entry.session;
-      const pending = Object.values(entry.operations).filter(
-        (effect) => effect.phase !== "terminal",
-      );
+      let pending = Object.values(entry.operations).filter((effect) => effect.phase !== "terminal");
       const stopping = isStopping(session);
       // CI effects allocate no provider resources. Their late results are fenced locally.
       for (const effect of pending)
         if (
           effect.kind === "images" &&
-          (stopping || effect.operationVersion !== session.operationVersion)
+          (stopping ||
+            effect.operationVersion !== session.operationVersion ||
+            !entry.plan.resources.some((resource) => resource.imageTarget))
         )
           effect.phase = "terminal";
-      const activePending = pending.filter((effect) => effect.phase !== "terminal");
-      pending.splice(0, pending.length, ...activePending);
+      pending = pending.filter((effect) => effect.phase !== "terminal");
       if (
         !stopping &&
         session.pendingDeadline &&

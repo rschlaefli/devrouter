@@ -473,11 +473,13 @@ export function compileNorthflankGraph(
       throw new Error("Northflank JSON build binding requires a bounded flat object.");
     const value = JSON.stringify(
       Object.fromEntries(
-        Object.entries(fields).map(([key, item]) => {
-          if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(key))
-            throw new Error("Invalid Northflank JSON build binding key.");
-          return [key, literal(item)];
-        }),
+        Object.entries(fields)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, item]) => {
+            if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(key))
+              throw new Error("Invalid Northflank JSON build binding key.");
+            return [key, literal(item)];
+          }),
       ),
     );
     if (Buffer.byteLength(value) > 16 * 1024)

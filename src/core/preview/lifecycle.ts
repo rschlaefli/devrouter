@@ -102,12 +102,14 @@ export function createPreviewSession({
   revision,
   aliases,
   commandId,
+  waitForImages = false,
 }: {
   generation: string;
   now: number;
   revision: string;
   aliases: string[];
   commandId: string;
+  waitForImages?: boolean;
 }): PreviewSession {
   assertTime(now);
   assertId(generation, "generation");
@@ -115,8 +117,9 @@ export function createPreviewSession({
   assertRevision(revision);
   return {
     generation,
-    status: "provisioning",
+    status: waitForImages ? "waiting-images" : "provisioning",
     createdAt: now,
+    ...(waitForImages ? {} : { provisioningStartedAt: now }),
     setupDeadline: add(now, SETUP_LIMIT),
     expiresAt: add(now, BACKSTOP),
     extensions: 0,
@@ -214,7 +217,8 @@ export function transitionPreviewSession(
     }
 
     case "images-ready": {
-      if (session.status !== "waiting-images") return clone(session);
+      if (session.status !== "waiting-images" || session.provisioningStartedAt !== undefined)
+        return clone(session);
       return {
         ...clone(session),
         status: "provisioning",

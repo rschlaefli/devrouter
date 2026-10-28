@@ -64,9 +64,11 @@ export function commandImageBackend(options: {
           request: prepared.request,
           producer: options.producer,
           missing,
-          pinnedImages: entry.plan.resources.flatMap((resource) =>
-            resource.image ? [resource.image] : [],
-          ),
+          pinnedImages: [
+            ...new Set(
+              entry.plan.resources.flatMap((resource) => (resource.image ? [resource.image] : [])),
+            ),
+          ],
         });
         if (Buffer.byteLength(input) > 1024 * 1024)
           throw new Error("Image request exceeds its bound.");
