@@ -179,6 +179,23 @@ a CI target never falls back to a provider build.
 
 ## Northflank provider source
 
+Completed preparation, credential delivery and output-source phases are checkpointed
+inside their admitted operation. Waiting for activation re-observes the active run;
+it does not reread those completed phases or every secret group. Before readiness,
+credential restrictions, addon bindings and delivered values are checked again.
+An explicit refresh uses a new operation and performs those checks anew.
+
+The transport respects Northflank's numeric remaining/reset headers and
+`Retry-After`. Normal work leaves 100 reported requests for cleanup. Cleanup can
+use that reserve; an exhausted account still waits. Deferrals persist as private
+generation metadata, survive a new controller process and never prove resource
+absence. Missing or malformed wait headers on HTTP429 use a one-hour wait.
+No request is retried internally, and an uncertain write is reconciled or cleaned
+up rather than replayed. Unrelated account traffic and clients without shared
+state can consume the reserve, so native expiry remains the independent backstop.
+This source behavior requires separate live qualification.
+
+
 The internal Northflank adapter compiles explicit installation recipes into staged
 native preview blueprints. It creates an empty generation first, confirms its
 absolute expiry, prepares private dependencies and inactive services, injects
