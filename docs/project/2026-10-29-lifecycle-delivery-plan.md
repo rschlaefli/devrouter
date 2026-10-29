@@ -133,3 +133,87 @@ fixtures live under `/private/tmp/dr-lifecycle-delivery-20261029/`.
   and package verification remain reusable. Terminal head and CI for that
   reconciliation are recorded in the draft and ignored evidence, without
   relabelling the live producer. This package remains draft and unreleased.
+
+## Approved interrupted-provisioning extension
+
+The pilot owner supplied a human-approved source package and explicit
+coordination authority on 2026-10-29. Main retains this branch and the existing
+stop-repair owners. The pilot owner verifies the returned candidate. This
+extension authorizes implementation, regression tests, reviews, ordinary
+task-branch publication and qualified draft delivery. It authorizes no
+installation, merge, release, cleanup, database reset or pilot runtime attempt.
+
+The outcome is an inspectable build that can be interrupted and subsequently
+stopped through canonical ownership-proven recovery. An immutable generation
+replacement is a reason for ordinary stop to refuse. Reuse explicit
+`devrouter stop <checkout> --repair` and the existing positive absence,
+retained-identity, complete-population and repeated-observation protection.
+Diagnose which dimension differs before considering a rule change. Component
+tests and synthetic provider proof never establish recovery of a real consumer.
+
+### Primitive impact
+
+| Product primitive | Disposition | Contract delta | Consumers and evidence |
+| --- | --- | --- | --- |
+| Managed ownership and explicit stop recovery | Reuse | No relaxation of ordinary stop or immutable authority | Existing replacement/refusal tests plus interrupted synthetic provisioning |
+| Lifecycle operation and stage evidence | Extend | Read-only structured progress remains available during provisioning; unknown liveness and explicit deadline semantics | Managed status and existing operation projection |
+| Bounded command output | Compose | Same output buffer supplies the original stream and an explicit private diagnostic tail | Worker supervision and `logs --repo`; raw output is absent from status and journals |
+
+### Source sequence and acceptance
+
+1. Compare the retained and observed generation with scoped read-only evidence.
+   Preserve the pilot and its existing edits. Reproduce create/replacement,
+   stalled build, cancellation and canonical stop/recovery with closed synthetic
+   providers. Preserve the fixture's volume marker and exercise ambiguous,
+   unrelated and swapped populations through the existing stop seams. Record
+   real Docker/pilot acceptance as unqualified until its exact runtime/data
+   authority exists.
+2. Add `src/core/lifecycle-diagnostics.ts` and its focused
+   `src/core/__tests__/lifecycle-diagnostics.test.ts`. Three concrete callers
+   justify the module: lifecycle supervision, managed status and the existing
+   logs handler. Store one bounded private artifact per exact environment under
+   `~/.config/devrouter/lifecycle-diagnostics/`, separate from journal discovery.
+   Bind it to operation ID, worker and intent/runtime/controller fence. Reads
+   use journal/receipt/journal validation without acquiring mutation locks.
+   Unsafe, unavailable or raced evidence yields unknown rather than effects.
+3. Extend `reliability-worker.ts` and existing progress evidence to observe manual
+   ensure output while preserving streaming. Reuse `LifecycleOutput`; retain at
+   most 32 KiB of raw output in a same-user 0600 bounded artifact beneath a
+   private directory. Coalesce writes behind one unreferenced throttle timer,
+   flush stage/cancellation/terminal observations, and isolate all diagnostic
+   failures from lifecycle results. Never persist arguments or environment.
+   Parse bounded, ANSI-normalized actual package output conservatively; duplicate
+   lines and phase heartbeats do not advance meaningful output progress.
+4. Compose `projectLifecycleOperation` into managed status with structured
+   elapsed/stage/output/progress evidence. Liveness stays unknown. The execution
+   deadline is explicitly absent; report the existing worker-handshake and
+   cancellation-grace limits separately. Cancellation and drainage come from
+   the journal and existing process-group proof, never diagnostic timestamps.
+   Extend `logs --repo <checkout>` to read the matching bounded latest ensure
+   tail explicitly; default Traefik logs retain their current behavior. Snapshot
+   mode rejects follow rather than introducing another watcher/controller.
+5. Extend existing worker, progress, managed-status, logs and synthetic lifecycle
+   qualification tests at these seams. Cover held-lock read access, split and
+   oversized output, privacy, stale fences, failed diagnostic sinks and child
+   drainage. Update `types.ts`, `cli.ts`, `output.ts`, the existing logs handler,
+   bundled skill, AI prompt and owning lifecycle manual/knowledge as required
+   by the added diagnostic surface. No new dependency, controller or registry.
+   Run focused checks, required repository checks and independent integrated
+   review. Publish the held candidate through the existing draft.
+
+### Extension progress
+
+- Baseline: held source `bc79ba59`, target `de4ba1e4`; remote default has no new
+  changes. Prior component reviews and live ordinary-journey proof remain valid
+  for their unchanged scope, not for this new interrupted-provisioning contract.
+- Plan critique: Gemini 3.8 Flash high returned findings on race validation,
+  filesystem bounds, timer cleanup, package parsing and drainage authority.
+  Those protections are included above. The full schema-validated review and
+  private pilot comparison remain in ignored local evidence. Public records
+  contain only generic and synthetic facts.
+- First useful acceptance: a stalled synthetic hook exposes meaningful progress
+  and a bounded log tail while holding the lifecycle lock, then cancellation
+  leaves an interrupted, drained operation that can reach canonical stop.
+- Terminal: reviewed and checked draft candidate with exact source identity,
+  producing regression evidence and explicit real-provider/pilot gaps. No
+  cross-chat messaging is authorized by this delegated extension.
