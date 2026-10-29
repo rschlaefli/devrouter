@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
+import { isDeepStrictEqual } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DevrouterConfig, HostRouteState, ManagedRuntimeStatus } from "../../types";
 import {
@@ -1308,6 +1309,75 @@ describe("workspaceEnsure", () => {
     expect(writeManagedRuntimeState).toHaveBeenLastCalledWith(
       expect.objectContaining({ status: "ready", stopBaseline: captured.stopBaseline }),
     );
+  });
+
+  it("accepts a persisted generation for ordinary ensure and repair without host ports", async () => {
+    const { snapshots } = mockDevsyCapture([]);
+    const actual = await vi.importActual<typeof import("../managed-runtime-state")>(
+      "../managed-runtime-state",
+    );
+    const readState = vi.mocked(readManagedRuntimeState).getMockImplementation()!;
+    const writeState = vi.mocked(writeManagedRuntimeState).getMockImplementation()!;
+    const proveStop = vi.mocked(proveRetainedManagedStop).getMockImplementation()!;
+    const capture = vi.mocked(captureManagedStopBaseline).getMockImplementation()!;
+    vi.mocked(readManagedRuntimeState).mockImplementation(actual.readManagedRuntimeState);
+    vi.mocked(writeManagedRuntimeState).mockImplementation(actual.writeManagedRuntimeState);
+    vi.mocked(captureManagedStopBaseline).mockImplementation((state, plan, ...args) => ({
+      ...capture(state, plan, ...args),
+      containers: snapshots.map((snapshot) => ({
+        id: createHash("sha256").update(snapshot.id).digest("hex"),
+        service: snapshot.labels["com.docker.compose.service"]!,
+        configFiles: plan.composeFiles,
+        mounts: snapshot.mounts,
+      })),
+    }));
+    vi.mocked(collectManagedRuntimeStatus).mockReturnValue({
+      mode: "managed",
+      status: "ready",
+    } as ManagedRuntimeStatus);
+    vi.mocked(proveRetainedManagedStop).mockImplementation((captured) => {
+      if (
+        !isDeepStrictEqual(readManagedRuntimeState(captured.repoPath, captured.workspace), captured)
+      ) {
+        throw new Error("Retained stop generation changed.");
+      }
+      return [];
+    });
+
+    try {
+      await expect(
+        workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+      ).resolves.toMatchObject({ managedRuntime: { status: "ready" } });
+      expect(proveRetainedManagedStop).toHaveBeenCalledOnce();
+      expect(readManagedRuntimeState(tmpDir)).toBeUndefined();
+      expect(readManagedRuntimeState(path.join(tmpDir, "other"), "feature")).toBeUndefined();
+
+      const persisted = readManagedRuntimeState(tmpDir, "feature");
+      expect(persisted).toMatchObject({ status: "ready" });
+      actual.markManagedRuntimeDegraded(persisted as ManagedRuntimeState, "interrupted");
+      expect(readManagedRuntimeState(tmpDir, "feature")).toMatchObject({
+        status: "degraded",
+        transitionPhase: "interrupted",
+      });
+      fs.writeFileSync(path.join(gitDir, "devrouter-workspace"), "feature\n");
+      writeWorkspaceOwnership(tmpDir, {
+        workspace: "feature",
+        devpodId: "feature",
+        worktreePath: tmpDir,
+      });
+
+      await expect(
+        workspaceEnsure(tmpDir, { repair: true, containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+      ).resolves.toMatchObject({ managedRuntime: { status: "ready" } });
+      expect(proveRetainedManagedStop).toHaveBeenCalledTimes(2);
+      expect(readManagedRuntimeState(tmpDir, "feature")).toMatchObject({ status: "ready" });
+    } finally {
+      vi.mocked(readManagedRuntimeState).mockImplementation(readState);
+      vi.mocked(writeManagedRuntimeState).mockImplementation(writeState);
+      vi.mocked(proveRetainedManagedStop).mockImplementation(proveStop);
+      vi.mocked(captureManagedStopBaseline).mockImplementation(capture);
+      fs.rmSync(actual.managedRuntimeStatePath(tmpDir, "feature"), { force: true });
+    }
   });
 
   it("reconciles selected services and processes without recreating the primary container", async () => {

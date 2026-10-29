@@ -95,3 +95,18 @@ recreating the externally recreated container.
   `stopWorkStarted: null` on settled records made installed 0.1.2 refuse
   every lifecycle command for that checkout with `Reliability record contains
   unsupported fields.`, which is why settlement now deletes the field instead.
+
+### Partial replacement needs per-container evidence
+
+A provider recreation can replace the primary container while retaining its
+unchanged dependencies. Requiring every old ID to be absent rejects that valid
+population. Treating service labels as sufficient would instead adopt containers
+without proving their prior ownership.
+
+Explicit stop recovery therefore compares observed original IDs with their
+recorded immutable service, Compose files and mounts, and positively proves
+absence only for original IDs no longer present. Complete current configuration,
+provider/daemon binding and repeated population observations remain required.
+The recovery tests exercise a replaced primary, altered retained dependency
+identity and a change between observations. See [partial replacement repair
+PR #166](https://github.com/rschlaefli/devrouter/pull/166).

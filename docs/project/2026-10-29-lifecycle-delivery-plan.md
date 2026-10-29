@@ -106,6 +106,15 @@ fixtures live under `/private/tmp/dr-lifecycle-delivery-20261029/`.
   Claude and native routes failed before useful review; no gate pass is inferred
   from their process state. Full report remains in ignored local reviews.
 - Published 0.6.0 is installed through Volta; registry integrity and all three
-  runtime artifact bytes match. Candidate source integration and live proof are
-  pending. The earlier native roadmap goal remains blocked; this conversational
-  batch does not relabel that goal or grant a new release authority.
+  runtime artifact bytes match. Candidate source integration is complete; live
+  proof, independent integrated review and hosted CI remain pending.
+- Verification: all 252 focused tests pass after the reproduced failures. Docs
+  policy, knowledge, Biome, Knip, typecheck, full suite (3,380 passing, 13 Linux
+  skips), build and isolated packed-install smoke pass on pinned Node 24.
+  Linux process-helper shell checks require hosted Linux CI. Substantive source
+  and test delta: 161 lines; production change: 30 lines. Main-session inspection
+  found no worthwhile additional abstraction or simplification.
+- First full checks used host context after the sandbox blocked the package
+  manager's lockfile location. No failed sandbox check is counted as a pass.
+  The earlier native roadmap goal remains blocked; this conversational batch
+  does not relabel that goal or grant a new release authority.

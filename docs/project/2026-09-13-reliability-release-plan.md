@@ -1,16 +1,18 @@
 # Reliable managed sessions through Devrouter 0.1.0
 
-**Current status (2026-10-26): released through 0.5.5; reliability acceptance
-remains active.** The [current repair and verification package](./2026-10-26-reliability-evidence-repair.md)
-records the merged sleep-verifier correction and explicit replacement-population
-stop recovery, including scoped live qualification. Release/source completion
+**Current status (2026-10-29): released through 0.6.0; reliability acceptance
+remains active.** The [current lifecycle delivery package](./2026-10-29-lifecycle-delivery-plan.md)
+combines persistence and partial-population recovery fixes and verifies the
+ordinary agent workflow. The [earlier repair and verification package](./2026-10-26-reliability-evidence-repair.md)
+records merged sleep-verifier and stop-repair evidence. Release/source completion
 does not establish complete M1–M3 acceptance.
 
 ### Current acceptance and ownership
 
 | Work | Current evidence and next boundary |
 | --- | --- |
-| Released lifecycle foundation | Releases through [0.5.5](https://github.com/rschlaefli/devrouter/releases/tag/v0.5.5) carry prior recovery, idle-stop, Linux and routing fixes. Release CI passed at `e0111372`; installation and downstream adoption are separate evidence. |
+| Released lifecycle foundation | [0.6.0](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.0) is published and its local global installation is verified against registry integrity and CLI/worker/helper bytes. The current unreleased lifecycle candidate remains a separate artifact; downstream adoption is unqualified. |
+| Ordinary agent journey | Persistence and partial-replacement regressions are reproduced and corrected in the current package. Source and packed-distribution checks pass; integrated review, two-environment live work/recovery/retention proof and hosted CI are pending. |
 | RF08 integrated canary | Open: requires an authorized consumer/profile and two environments, semantic readiness, fault/pressure/parking/resume proof and neighbour functionality. Isolated fixtures do not close this contract. |
 | RF09 / Q20 host suspend | Partially qualified: the September pass remains invalid acceptance evidence. After the verifier correction in [PR #156](https://github.com/rschlaefli/devrouter/pull/156), a fresh long-suspend retry passed on unchanged `1df0d0a6` artifacts: the old generation was invalidated, re-observation issued a fresh generation, the route remained functional, and cleanup was verified. A short-suspend attempt failed session invalidation; short suspends under the current timer policy remain an open coverage gap. This is source-revision qualification, not exact-release or consumer acceptance. |
 | Explicit stop repair | [PR #156](https://github.com/rschlaefli/devrouter/pull/156) merged the bounded repair from [PR #130](https://github.com/rschlaefli/devrouter/pull/130), with retry/failure-boundary coverage. Scoped live replacement/refusal/repair/retry/data-retention verification passed; consumer recovery remains separately owned. |
@@ -20,8 +22,8 @@ does not establish complete M1–M3 acceptance.
 RF12 cohort receipts and RF13 durable evidence remain useful historical proof,
 not blanket qualification of every newer release. Cloud-preview development and
 consumer application work retain their existing owners and are outside this
-repair package. Release installation, trusted CI adoption and broader dependency
-refresh are separate follow-ups; they are not implied by this roadmap update.
+repair package. Trusted CI adoption and broader dependency refresh remain
+separate follow-ups; they are not implied by this roadmap update.
 
 The sections below preserve dated evidence. This status table supersedes their
 older open/closed labels, particularly the withdrawn Q20 closure.
