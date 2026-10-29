@@ -237,7 +237,10 @@ from public build inputs. Declarations allow at most32 sensitive names, 16 outpu
 32 selected secret groups.
 
 Generation values persist in restricted native runtime groups. The ownership journal
-records only delivered names. Refresh adopts matching persisted copies, compares
+records delivered names and successful initialization-job references, without values.
+Completed jobs are explicitly skipped across startup phases and refresh, even if their
+workflow position changes. Jobs configured for updates use revision-specific references.
+Refresh adopts matching persisted copies, compares
 source outputs, and fails closed if delivered values disappear or disagree. Generated
 names are recorded before source startup. Source startup includes only output-source
 dependencies; consumers start after output delivery and recipient readback. One output

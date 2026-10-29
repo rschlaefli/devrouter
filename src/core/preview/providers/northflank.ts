@@ -37,6 +37,7 @@ export type NorthflankOwnership = {
   previewId?: string;
   resources: NorthflankOwnedResource[];
   delivered?: string[];
+  completedJobRuns?: string[];
   absent: boolean;
 };
 
@@ -51,7 +52,14 @@ export function decodeNorthflankOwnership(value: unknown): NorthflankOwnership {
   const row = object(
     value,
     ["schemaVersion", "generation", "policyDigest", "resources", "absent"],
-    ["blueprintId", "previewId", "blueprintObserved", "blueprintRejected", "delivered"],
+    [
+      "blueprintId",
+      "previewId",
+      "blueprintObserved",
+      "blueprintRejected",
+      "delivered",
+      "completedJobRuns",
+    ],
   );
   if (
     row.schemaVersion !== 1 ||
@@ -80,6 +88,18 @@ export function decodeNorthflankOwnership(value: unknown): NorthflankOwnership {
       ))
   )
     throw new Error("Invalid Northflank delivered-name metadata.");
+  if (
+    row.completedJobRuns !== undefined &&
+    (!Array.isArray(row.completedJobRuns) ||
+      row.completedJobRuns.length > 256 ||
+      row.completedJobRuns.some(
+        (name, index, names) =>
+          typeof name !== "string" ||
+          !/^init_[a-z0-9_]{1,123}$/.test(name) ||
+          (index > 0 && names[index - 1] >= name),
+      ))
+  )
+    throw new Error("Invalid Northflank completed-job metadata.");
   if (!Array.isArray(row.resources) || row.resources.length > 256)
     throw new Error("Invalid Northflank ownership resource list.");
   const references = new Set<string>();
@@ -109,6 +129,7 @@ export function decodeNorthflankOwnership(value: unknown): NorthflankOwnership {
     row.absent &&
     (row.resources.length ||
       row.delivered?.length ||
+      row.completedJobRuns?.length ||
       row.blueprintId !== undefined ||
       row.previewId !== undefined)
   )
@@ -190,6 +211,8 @@ export class NorthflankOwnershipStore {
         if (!next.absent) {
           if (current.delivered?.some((name) => !next.delivered?.includes(name)))
             throw new Error("Northflank delivered names cannot be forgotten.");
+          if (current.completedJobRuns?.some((name) => !next.completedJobRuns?.includes(name)))
+            throw new Error("Northflank completed jobs cannot be forgotten.");
           if (current.blueprintObserved && !next.blueprintObserved)
             throw new Error("Northflank creation observation cannot be forgotten.");
           for (const key of ["blueprintId", "previewId"] as const)
@@ -1068,9 +1091,21 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     if (!Array.isArray(steps))
       throw new NorthflankFailure("Northflank executed graph is unavailable.");
     const additions: NorthflankOwnedResource[] = [];
+    const completedJobRuns: string[] = [];
     const kinds = nativeKinds;
     for (const raw of steps) {
       const node = record(raw);
+      if (node.kind === "JobRun" && typeof node.ref === "string") {
+        const status = record(node.response ?? {}).status;
+        if (node.skipNodeExecution !== "true" && status === "success")
+          completedJobRuns.push(node.ref);
+        else if (
+          ["success", "skipped"].includes(String(run.status)) &&
+          !owned.completedJobRuns?.includes(node.ref)
+        )
+          throw new NorthflankFailure("Northflank job completion is unproven.");
+        continue;
+      }
       if (typeof node.ref !== "string" || typeof node.kind !== "string" || !kinds[node.kind])
         continue;
       if (!/^(r|b|e|d)_/.test(node.ref)) continue;
@@ -1117,6 +1152,9 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     return store.update((current) => ({
       ...current,
       resources: [...current.resources, ...additions],
+      completedJobRuns: [
+        ...new Set([...(current.completedJobRuns ?? []), ...completedJobRuns]),
+      ].sort(),
     }));
   }
   private async teardown(
@@ -1181,6 +1219,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       previewId: undefined,
       resources: [],
       delivered: [],
+      completedJobRuns: [],
       absent: true,
     }));
     return this.receipt(owned, true);
@@ -1268,6 +1307,7 @@ function bindings(owned: NorthflankOwnership) {
   return {
     resources: Object.fromEntries(owned.resources.map((item) => [item.reference, item.id])),
     domains: owned.resources.filter((item) => item.kind === "domains").map((item) => item.name),
+    completedJobRuns: owned.completedJobRuns ?? [],
   };
 }
 

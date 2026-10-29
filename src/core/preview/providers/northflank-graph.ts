@@ -66,6 +66,7 @@ type Node = {
   updateMode?: "create" | "put";
   condition?: "success";
   runNodeOnce?: "true";
+  skipNodeExecution?: "true";
 };
 
 type RefNamespace = "r" | "b" | "e" | "d";
@@ -216,7 +217,10 @@ export function compileNorthflankGraph(
   entry: PreviewPoolEntry,
   policy: NorthflankGraphPolicy,
   phase: "prepare" | "source" | "activate" | "context",
-  owned: { resources: Record<string, string>; domains: string[] } = { resources: {}, domains: [] },
+  owned: { resources: Record<string, string>; domains: string[]; completedJobRuns?: string[] } = {
+    resources: {},
+    domains: [],
+  },
 ) {
   const source = entry.plan.source;
   if (
@@ -817,16 +821,22 @@ export function compileNorthflankGraph(
         },
       };
       activations.set(resource.id, [serviceActivation, runningCondition]);
-    } else
+    } else {
+      const jobRef = `init_${resource.id.replaceAll("-", "_")}${settings.runOn === "update" ? `_${source.head.slice(0, 12)}` : ""}`;
       activations.set(resource.id, [
         {
           kind: "JobRun",
-          ref: `init_${resource.id.replaceAll("-", "_")}${settings.runOn === "update" ? `_${source.head.slice(0, 12)}` : ""}`,
+          ref: jobRef,
+          // Native runNodeOnce identity also depends on the node's workflow position.
+          ...(owned.completedJobRuns?.includes(jobRef)
+            ? { skipNodeExecution: "true" as const }
+            : {}),
           condition: "success",
           runNodeOnce: "true",
           spec: { jobId: reference(resource.id) },
         },
       ]);
+    }
     const variables: Record<string, string> = {};
     const runtime: Record<string, string> = {};
     const sensitive: Record<string, SensitiveBinding> = {};
