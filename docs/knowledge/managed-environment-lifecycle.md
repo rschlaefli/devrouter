@@ -618,6 +618,10 @@ It verifies both full IDs and the sharing container's namespace on the pinned
 endpoint before and after hashing. Only that model field changes in memory;
 source bytes and every other service field remain part of the original proof.
 Missing, foreign, ambiguous or changing evidence still refuses recovery.
+A primary recreation can leave a retained peer attached to the removed primary's
+namespace. That stale binding is not equivalent to the current primary, even
+when both generations belonged to the same checkout. Stop repair does not
+recreate peers or reinterpret their stale namespace as current ownership.
 Two stable observations precede the degraded replacement baseline. The durable
 stop-work boundary and effect fence precede its write; normal pinned stop and
 settlement then apply. Recovery neither starts applications nor removes

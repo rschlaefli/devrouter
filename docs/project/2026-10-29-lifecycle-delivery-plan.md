@@ -323,3 +323,16 @@ the repository's release-triggered workflow, verify its exact merged tree and np
 integrity, then install through the existing global manager and compare CLI,
 worker and helper bytes. Terminal evidence belongs in the draft and ignored
 records, with no receipt-only tracked commit after checks finish.
+
+
+### Live namespace disposition
+
+The live rehearsal distinguishes two cases. An exact current-primary namespace
+passes the unchanged configuration guard and canonical stop repair. A provider
+recreation can leave a retained peer attached to the removed primary; this is
+real drift and correctly refuses. The fixture's peer was restored only after
+exact source/population/daemon/runner/absence proof under the lifecycle and
+provider locks, without volume deletion, before rerunning canonical repair.
+That controlled fixture action is not an automatic consumer recovery path.
+The existing roadmap keeps ownership-proven peer reconciliation open. This
+finding changes the qualification limit, not the guard or release source.

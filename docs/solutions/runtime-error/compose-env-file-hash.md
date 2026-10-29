@@ -36,3 +36,10 @@ covers exact equivalence, target ambiguity, namespace races and non-namespace
 configuration changes in `devcontainer-profile.test.ts`. Source recovery is
 qualified separately from real-provider recovery. See the generic source package
 in [draft #167](https://github.com/rschlaefli/devrouter/pull/167).
+
+A provider recreation may replace the primary while a peer still names the old
+primary's namespace. This is actual runtime drift, and the equivalence fallback
+must refuse it. The disposable live rehearsal verified that refusal separately
+from successful canonical repair after the fixture's exact owned peer was
+restored under the lifecycle and provider locks. That fixture operation is not
+a consumer recovery procedure or automatic peer reconciliation capability.
