@@ -106,8 +106,7 @@ fixtures live under `/private/tmp/dr-lifecycle-delivery-20261029/`.
   Claude and native routes failed before useful review; no gate pass is inferred
   from their process state. Full report remains in ignored local reviews.
 - Published 0.6.0 is installed through Volta; registry integrity and all three
-  runtime artifact bytes match. Candidate source integration is complete; live
-  proof, independent integrated review and hosted CI remain pending.
+  runtime artifact bytes match. It does not contain this unreleased candidate.
 - Verification: all 252 focused tests pass after the reproduced failures. Docs
   policy, knowledge, Biome, Knip, typecheck, full suite (3,380 passing, 13 Linux
   skips), build and isolated packed-install smoke pass on pinned Node 24.
@@ -118,3 +117,19 @@ fixtures live under `/private/tmp/dr-lifecycle-delivery-20261029/`.
   manager's lockfile location. No failed sandbox check is counted as a pass.
   The earlier native roadmap goal remains blocked; this conversational batch
   does not relabel that goal or grant a new release authority.
+- [PR #167](https://github.com/rschlaefli/devrouter/pull/167) owns the combined
+  candidate. Independent final review covers all nine paths at `04f5c62e` and
+  passes with no findings. Scoped Opengrep reports no findings or errors. Hosted
+  [CI run 40884580277](https://github.com/rschlaefli/devrouter/actions/runs/40884580277)
+  passes on that head, including Linux process and installed synthetic checks.
+- The packed candidate's live two-environment journey passes at `04f5c62e`:
+  cold start, actual container work over real TLS routes, warm identity reuse,
+  propagated one-time adapter failure, explicit repair, stop/resume, retained
+  data and an unaffected neighbour. Final canonical stops and fresh source-path
+  provider/route reads prove both fixtures stopped with zero exact routes.
+  Retained data and checkouts were not deleted. Existing-consumer recovery,
+  capacity/parking acceptance and short-suspend continuity remain open.
+- The final roadmap reconciliation changes documentation only; unchanged source
+  and package verification remain reusable. Terminal head and CI for that
+  reconciliation are recorded in the draft and ignored evidence, without
+  relabelling the live producer. This package remains draft and unreleased.
