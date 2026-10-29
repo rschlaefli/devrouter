@@ -65,9 +65,10 @@ export function lifecycleDiagnosticsPath(identity: ReliabilityIdentity): string 
 function readReceipt(identity: ReliabilityIdentity): Receipt | undefined {
   let descriptor: number | undefined;
   try {
-    if (!privateDirectory(path.dirname(lifecycleDiagnosticsPath(identity)))) return undefined;
+    const file = lifecycleDiagnosticsPath(identity);
+    if (!privateDirectory(path.dirname(file))) return undefined;
     descriptor = fs.openSync(
-      lifecycleDiagnosticsPath(identity),
+      file,
       fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK,
     );
     const stat = fs.fstatSync(descriptor);
@@ -222,17 +223,16 @@ export class LifecycleDiagnosticRecorder {
     this.fragments[stream] = (lines.pop() ?? "").slice(-4096);
     for (const raw of lines) {
       const line = stripVTControlCharacters(raw).trim();
-      const digest = createHash("sha256").update(line).digest("hex");
       if (
         !line ||
-        digest === this.lastLine ||
+        line === this.lastLine ||
         [...line].some(
           (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
         ) ||
         line.startsWith('{"type":"lifecycle-progress"')
       )
         continue;
-      this.lastLine = digest;
+      this.lastLine = line;
       this.receipt.lastProgressAtMs = now;
       const buildPackage = PACKAGE_TASK.exec(line)?.[1];
       if (buildPackage && buildPackage.length <= 128) this.receipt.buildPackage = buildPackage;

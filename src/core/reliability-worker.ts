@@ -577,7 +577,6 @@ export async function runLifecycleWorker(
         } catch (error) {
           failure = error instanceof Error ? error : new Error(String(error));
         }
-        diagnostics?.close();
         if (failure) reject(failure);
         else if (!result?.ok)
           reject(
