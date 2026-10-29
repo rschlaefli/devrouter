@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readPreviewResponse } from "../http";
 import { MAX_PREVIEW_DEADLINE_EARLINESS_MS } from "../lifecycle";
 
@@ -72,12 +73,26 @@ export class NorthflankOutcomeUncertain extends Error {
   }
 }
 
+export class NorthflankRateLimited extends NorthflankOutcomeUncertain {
+  constructor(
+    readonly until: number,
+    readonly exhausted: boolean,
+  ) {
+    super();
+    this.name = "NorthflankRateLimited";
+  }
+}
+
 /** Project-scoped transport. It never retries mutations or exposes response bodies in errors. */
 export class NorthflankPreviewAPI {
   private readonly base: string;
   private readonly fetch: typeof fetch;
   private readonly websocketFactory: (url: string) => WebSocket;
   private readonly deadlineMarginMs: number;
+  private readonly cleanup = new AsyncLocalStorage<boolean>();
+  private quota?: { remaining: number; resetAt: number };
+  private exhaustedUntil = 0;
+  private readonly now: () => number;
   readonly projectId: string;
   readonly domain?: string;
 
@@ -89,8 +104,10 @@ export class NorthflankPreviewAPI {
       websocketFactory?: (url: string) => WebSocket;
       deadlineMarginMs?: number;
       domain?: string;
+      now?: () => number;
     },
   ) {
+    this.now = options.now ?? Date.now;
     this.projectId = northflankIdentifier(options.projectId);
     if (
       options.domain &&
@@ -108,6 +125,63 @@ export class NorthflankPreviewAPI {
     this.deadlineMarginMs = margin;
   }
 
+  withCleanup<T>(cleanup: boolean, action: () => Promise<T>): Promise<T> {
+    return this.cleanup.run(cleanup, action);
+  }
+
+  private checkQuota() {
+    const now = this.now();
+    if (this.exhaustedUntil > now) throw new NorthflankRateLimited(this.exhaustedUntil, true);
+    if (this.quota && this.quota.resetAt <= now) this.quota = undefined;
+    if (this.quota) {
+      if (this.quota.remaining <= (this.cleanup.getStore() ? 0 : 100))
+        throw new NorthflankRateLimited(this.quota.resetAt, this.quota.remaining === 0);
+      this.quota.remaining -= 1;
+    }
+  }
+
+  private observeQuota(response: Response) {
+    const now = this.now();
+    const number = (name: string, max: number) => {
+      const value = response.headers.get(name);
+      return value !== null && /^\d{1,9}$/.test(value) && Number(value) <= max
+        ? Number(value)
+        : undefined;
+    };
+    const remaining = number("x-ratelimit-remaining", 1_000_000);
+    const reset = number("x-ratelimit-reset", 86_400);
+    if (remaining !== undefined) {
+      const resetAt = now + Math.max(1, reset ?? 3600) * 1000;
+      if (!this.quota || this.quota.resetAt <= now) this.quota = { remaining, resetAt };
+      else {
+        // An older concurrent response cannot restore consumed request capacity.
+        this.quota.remaining = Math.min(this.quota.remaining, remaining);
+        this.quota.resetAt = Math.max(this.quota.resetAt, resetAt);
+      }
+    }
+    if (response.status === 429) {
+      const retry = response.headers.get("retry-after");
+      const seconds = number("retry-after", 86_400);
+      const date =
+        retry &&
+        seconds === undefined &&
+        /^[A-Za-z]{3}, \d{2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(retry)
+          ? Date.parse(retry)
+          : NaN;
+      const retryMs =
+        seconds !== undefined
+          ? seconds * 1000
+          : Number.isFinite(date)
+            ? Math.min(86_400_000, Math.max(1000, date - now))
+            : 0;
+      this.exhaustedUntil = Math.max(
+        this.exhaustedUntil,
+        now + Math.max(1000, retryMs, (reset ?? (retryMs ? 0 : 3600)) * 1000),
+      );
+      throw new NorthflankRateLimited(this.exhaustedUntil, true);
+    }
+  }
+
   async execServiceCommand(
     serviceId: string,
     argv: string[],
@@ -120,6 +194,7 @@ export class NorthflankPreviewAPI {
       throw invalidCommand();
     }
     validateCommandArguments(argv);
+    this.checkQuota();
     if (
       !bounds ||
       !Number.isSafeInteger(bounds.maxBytes) ||
@@ -364,6 +439,7 @@ export class NorthflankPreviewAPI {
     const content = body === undefined ? undefined : JSON.stringify(body);
     if (content !== undefined && Buffer.byteLength(content) > MAX_BYTES)
       throw new Error("Northflank request exceeds its size bound.");
+    this.checkQuota();
     const token = await this.options.accessToken();
     if (!token || /\s/.test(token)) throw new Error("Northflank preview token is unavailable.");
     let response: Response;
@@ -378,6 +454,12 @@ export class NorthflankPreviewAPI {
     } catch {
       if (method !== "GET") throw new NorthflankOutcomeUncertain();
       throw new Error("Northflank read transport failed.");
+    }
+    try {
+      this.observeQuota(response);
+    } catch (error) {
+      await response.body?.cancel();
+      throw error;
     }
     if (method === "GET" && response.status === 404) {
       await response.body?.cancel();

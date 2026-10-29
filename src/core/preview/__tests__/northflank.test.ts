@@ -3,7 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PreviewEngine, type PreviewWriteGate } from "../engine";
 import { createPreviewSession } from "../lifecycle";
 import { NorthflankOwnershipStore, NorthflankPreviewProvider } from "../providers/northflank";
-import { NorthflankOutcomeUncertain, NorthflankPreviewAPI } from "../providers/northflank-api";
+import {
+  NorthflankOutcomeUncertain,
+  NorthflankPreviewAPI,
+  NorthflankRateLimited,
+} from "../providers/northflank-api";
 import { compileNorthflankGraph, type NorthflankGraphPolicy } from "../providers/northflank-graph";
 import type { PreviewPoolEntry } from "../state";
 import {
@@ -488,6 +492,144 @@ describe("Northflank preview transport", () => {
       api.resetDeadline("owned", "preview", target, target - 3_570_000),
     ).rejects.toBeInstanceOf(NorthflankOutcomeUncertain);
     expect(lifetimes).toEqual([60, 59]);
+  });
+});
+
+describe("Northflank request quota", () => {
+  it("does not let an older concurrent response restore an exhausted window", async () => {
+    let now = 1_700_000_000_000,
+      calls = 0;
+    const answers: Array<(response: Response) => void> = [];
+    const api = new NorthflankPreviewAPI({
+      projectId: "fixture",
+      now: () => now,
+      accessToken: async () => "synthetic",
+      fetch: async () => {
+        calls++;
+        return new Promise((resolve) => answers.push(resolve));
+      },
+    });
+    const first = api.request("GET", ["services"]),
+      second = api.withCleanup(true, () => api.request("GET", ["services"]));
+    await Promise.resolve();
+    await Promise.resolve();
+    answers[1](new Response(null, { status: 429, headers: { "x-ratelimit-reset": "120" } }));
+    await expect(second).rejects.toMatchObject({ until: now + 120_000 });
+    answers[0](
+      new Response(JSON.stringify({ data: {} }), {
+        headers: { "x-ratelimit-remaining": "999", "x-ratelimit-reset": "1" },
+      }),
+    );
+    await first;
+    now += 2000;
+    await expect(
+      api.withCleanup(true, () => api.request("GET", ["services"])),
+    ).rejects.toMatchObject({ exhausted: true });
+    expect(calls).toBe(2);
+  });
+
+  it("accepts a standard Retry-After date and defers scoped command execution too", async () => {
+    const now = 1_700_000_000_000;
+    const api = new NorthflankPreviewAPI({
+      projectId: "fixture",
+      now: () => now,
+      accessToken: async () => "synthetic",
+      websocketFactory: () => {
+        throw new Error("Must not open a command socket during quota wait");
+      },
+      fetch: async () =>
+        new Response(null, {
+          status: 429,
+          headers: { "retry-after": new Date(now + 90_000).toUTCString() },
+        }),
+    });
+    await expect(api.request("GET", ["services"])).rejects.toMatchObject({ until: now + 90_000 });
+    await expect(
+      api.execServiceCommand("owned", ["node", "--version"], { timeoutMs: 1000, maxBytes: 100 }),
+    ).rejects.toBeInstanceOf(NorthflankRateLimited);
+  });
+
+  it("reserves remaining capacity for async-scoped cleanup without internally retrying", async () => {
+    let now = 1_700_000_000_000,
+      calls = 0;
+    const api = new NorthflankPreviewAPI({
+      projectId: "fixture",
+      now: () => now,
+      accessToken: async () => "synthetic",
+      fetch: async () => {
+        calls++;
+        return new Response(JSON.stringify({ data: {} }), {
+          headers: { "x-ratelimit-remaining": "100", "x-ratelimit-reset": "60" },
+        });
+      },
+    });
+    await api.request("GET", ["services"]);
+    await expect(api.request("GET", ["services"])).rejects.toMatchObject({
+      until: now + 60_000,
+      exhausted: false,
+    });
+    expect(calls).toBe(1);
+    await api.withCleanup(true, async () => {
+      await expect(
+        api.withCleanup(false, () => api.request("GET", ["services"])),
+      ).rejects.toBeInstanceOf(NorthflankRateLimited);
+      await api.request("GET", ["services"]);
+    });
+    expect(calls).toBe(2);
+    now += 60_001;
+    await api.request("GET", ["services"]);
+    expect(calls).toBe(3);
+  });
+
+  it.each([
+    "GET",
+    "POST",
+  ] as const)("defers %s429 with bounded reset and never exposes response text", async (method) => {
+    let now = 1_700_000_000_000,
+      calls = 0;
+    const api = new NorthflankPreviewAPI({
+      projectId: "fixture",
+      now: () => now,
+      accessToken: async () => "synthetic",
+      fetch: async () => {
+        calls++;
+        return new Response("private-response", {
+          status: 429,
+          headers: { "retry-after": "30", "x-ratelimit-reset": "60" },
+        });
+      },
+    });
+    const result = api.request(method, ["services"]);
+    await expect(result).rejects.toBeInstanceOf(NorthflankOutcomeUncertain);
+    await expect(result).rejects.toMatchObject({ until: now + 60_000, exhausted: true });
+    await expect(
+      api.withCleanup(true, () => api.request("GET", ["services"])),
+    ).rejects.toBeInstanceOf(NorthflankRateLimited);
+    expect(calls).toBe(1);
+    now += 60_001;
+    await expect(
+      api.withCleanup(true, () => api.request("GET", ["services"])),
+    ).rejects.toBeInstanceOf(NorthflankRateLimited);
+    expect(calls).toBe(2);
+  });
+
+  it.each([
+    {},
+    { "retry-after": "secret-not-a-time", "x-ratelimit-reset": "-1" },
+    { "retry-after": "999999999999999" },
+  ])("uses a finite conservative wait for invalid headers %j", async (headers) => {
+    const now = 1_700_000_000_000;
+    const api = new NorthflankPreviewAPI({
+      projectId: "fixture",
+      now: () => now,
+      accessToken: async () => "synthetic",
+      fetch: async () =>
+        new Response(null, { status: 429, headers: headers as Record<string, string> }),
+    });
+    await expect(api.request("GET", ["services"])).rejects.toMatchObject({
+      until: now + 3_600_000,
+      exhausted: true,
+    });
   });
 });
 
@@ -1276,6 +1418,14 @@ describe("Northflank generation ownership", () => {
       await expect(
         ownership.update((current) => ({ ...current, completedJobRuns })),
       ).rejects.toThrow();
+    for (const apiWait of [
+      { until: 0, exhausted: true },
+      { until: 1.5, exhausted: false },
+      { until: 1, exhausted: "false" },
+    ])
+      await expect(
+        ownership.update((current) => ({ ...current, apiWait }) as any),
+      ).rejects.toThrow();
     const another = new NorthflankOwnershipStore({
       store,
       installationId: "fixture",
@@ -1360,6 +1510,11 @@ function providerFixture(
   const allocations = new Map<string, Record<string, any>>();
   const domains = new Map<string, string>();
   const mutations: string[] = [];
+  const requests: string[] = [];
+  let rateLimitPath: string | undefined;
+  let rateLimitReadback = false;
+  let reportedRemaining: string | undefined;
+  let pendingActivation = false;
   let lostRun = false;
   let partialPrepareFailure = false;
   let skipUnchanged = false;
@@ -1396,6 +1551,12 @@ function providerFixture(
         data,
         ...(rows ? { pagination: { hasNextPage: false, count: rows.length } } : {}),
       }),
+      {
+        headers:
+          reportedRemaining === undefined
+            ? {}
+            : { "x-ratelimit-remaining": reportedRemaining, "x-ratelimit-reset": "60" },
+      },
     );
   };
   const savedBlueprint = (body: Record<string, any>, id: string) => {
@@ -1426,6 +1587,7 @@ function providerFixture(
   const api = new NorthflankPreviewAPI({
     projectId: "fixture",
     domain: policy.baseDomain,
+    now: () => now,
     accessToken: async () => "synthetic",
     fetch: async (input, init) => {
       const url = new URL(String(input));
@@ -1433,6 +1595,18 @@ function providerFixture(
       const body = init?.body ? JSON.parse(init.body as string) : undefined;
       const parts = url.pathname.split("/").filter(Boolean);
       const tail = parts.slice(3);
+      requests.push(`${method} ${tail.join("/")}`);
+      if (rateLimitPath && tail.join("/").includes(rateLimitPath)) {
+        rateLimitPath = undefined;
+        return new Response("private-rate-response", {
+          status: 429,
+          headers: { "x-ratelimit-reset": "60", "retry-after": "30" },
+        });
+      }
+      if (rateLimitReadback && method === "PATCH" && tail[0] === "secrets") {
+        rateLimitReadback = false;
+        rateLimitPath = `${tail[1]}/details`;
+      }
       if (method !== "GET") mutations.push(`${method} ${tail.join("/")}`);
       if (parts[1] === "domains") {
         const name = parts.at(-1)!;
@@ -1634,7 +1808,8 @@ function providerFixture(
             environmentId: body.name,
             concluded: !(
               (pendingBootstrap && String(operation).startsWith("bootstrap-")) ||
-              (pendingPrepare && String(operation).startsWith("prepare-"))
+              (pendingPrepare && String(operation).startsWith("prepare-")) ||
+              (pendingActivation && String(operation).startsWith("activate-"))
             ),
             status: partialPrepare ? "failed" : skipped ? "skipped" : "success",
           };
@@ -1699,7 +1874,7 @@ function providerFixture(
     scopedRuntimeSecrets: true,
     restrictedIngress: true,
   };
-  const provider = new NorthflankPreviewProvider({
+  const providerOptions = {
     api,
     store,
     graph: policy,
@@ -1711,7 +1886,8 @@ function providerFixture(
       return "test-value";
     },
     accept: async () => true,
-  });
+  };
+  const provider = new NorthflankPreviewProvider(providerOptions);
   const identity = { forgeHost: "github.com", projectId: "123", change: 7 };
   const engine = new PreviewEngine({
     store,
@@ -1752,6 +1928,32 @@ function providerFixture(
     provider,
     store,
     records,
+    requests,
+    reportQuota: (remaining?: string) => {
+      reportedRemaining = remaining;
+    },
+    holdActivation: () => {
+      pendingActivation = true;
+    },
+    rateLimit: (path: string) => {
+      rateLimitPath = path;
+    },
+    rateLimitReadback: () => {
+      rateLimitReadback = true;
+    },
+    freshProvider: () =>
+      new NorthflankPreviewProvider({
+        ...providerOptions,
+        api: new NorthflankPreviewAPI({
+          projectId: "fixture",
+          domain: policy.baseDomain,
+          now: () => now,
+          accessToken: async () => "synthetic",
+          fetch: async () => {
+            throw new Error("Fresh client must not request during persisted wait");
+          },
+        }),
+      }),
     outputCalls,
     jobExecutions,
     jobOutcome: (status?: string) => {
@@ -1816,6 +2018,7 @@ function providerFixture(
     },
     finishRuns: () => {
       pendingPrepare = false;
+      pendingActivation = false;
       for (const run of runs.values()) run.concluded = true;
     },
     refreshSource: () => {
@@ -1889,6 +2092,118 @@ function credentialProviderFixture(
 }
 
 describe("Northflank generation credential delivery", () => {
+  it("uses reserved capacity to stop and defers again if cleanup is rate limited", async () => {
+    const f = credentialProviderFixture();
+    f.holdActivation();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    await f.reconcile(12);
+    f.reportQuota("100");
+    await f.reconcile(1);
+    const before = f.requests.length;
+    await f.reconcile(5);
+    expect(f.requests).toHaveLength(before);
+    f.rateLimit("preview-blueprints/");
+    await f.command("stop", { kind: "stop" });
+    await f.reconcile(3);
+    expect(f.requests.length).toBeGreaterThan(before);
+    const exhausted = f.requests.length;
+    await f.reconcile(3);
+    expect(f.requests).toHaveLength(exhausted);
+    expect((await f.engine.status(f.identity))?.session.reservationHeld).toBe(true);
+    f.reportQuota(undefined);
+    f.advance(60_001);
+    f.finishRuns();
+    expect((await f.reconcile(20))?.session.status).toBe("stopped");
+    expect(f.allocations.size).toBe(0);
+  });
+
+  it("honors expiry while an exhausted wait is persisted without losing cleanup ownership", async () => {
+    const f = credentialProviderFixture();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    const ready = (await f.reconcile(12))!;
+    f.rateLimit("preview-blueprints/");
+    expect(await f.provider.absent(ready)).toBe(false);
+    const before = f.requests.length;
+    f.advance(2 * 3_600_000 + 1);
+    expect((await f.reconcile(20))?.session.status).toBe("expired");
+    expect(f.requests.length).toBeGreaterThan(before);
+    expect(f.allocations.size).toBe(0);
+  });
+
+  it("observes only activation while pending and verifies credential drift before readiness", async () => {
+    const f = credentialProviderFixture();
+    f.holdActivation();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    await f.reconcile(12);
+    const before = f.requests.length,
+      reads = f.secretReads();
+    await f.reconcile(10);
+    const waiting = f.requests.slice(before);
+    expect(waiting).toHaveLength(20);
+    expect(
+      waiting.every(
+        (path) =>
+          path.startsWith("GET preview-blueprints/") && /\/(runs|previews)(\/|$)/.test(path),
+      ),
+    ).toBe(true);
+    expect(f.secretReads()).toBe(reads);
+    for (const group of f.allocations.values())
+      if (group.kind === "secrets") group.secrets.variables = {};
+    f.finishRuns();
+    expect((await f.reconcile(20))?.session.status).toBe("stopped");
+    expect(f.allocations.size).toBe(0);
+  });
+
+  it("persists exhausted waits across fresh clients and stop without falsely proving absence", async () => {
+    const f = credentialProviderFixture();
+    f.holdActivation();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    const entry = (await f.reconcile(12))!;
+    f.rateLimit("/runs/");
+    await f.reconcile(1);
+    const before = f.requests.length;
+    const fresh = f.freshProvider();
+    const gate = {
+      read: async () => [],
+      fenced: async () => false,
+      begin: async () => {
+        throw new Error("No writes during persisted wait");
+      },
+      record: async () => {},
+    };
+    expect(
+      (
+        await fresh.observe(
+          Object.values(entry.operations).find((r) => r.kind === "deploy")!,
+          entry,
+          gate,
+        )
+      ).phase,
+    ).toBe("pending");
+    expect(await fresh.absent(entry)).toBe(false);
+    await f.command("stop", { kind: "stop" });
+    await f.reconcile(5);
+    expect(f.requests).toHaveLength(before);
+    expect((await f.engine.status(f.identity))?.session.reservationHeld).toBe(true);
+    f.advance(60_001);
+    f.finishRuns();
+    expect((await f.reconcile(20))?.session.status).toBe("stopped");
+    expect(f.allocations.size).toBe(0);
+  });
+
+  it("never repeats a secret write after a rate-limited readback", async () => {
+    const f = credentialProviderFixture();
+    f.rateLimitReadback();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    await f.reconcile(8);
+    const writes = f.mutations.filter((p) => p.startsWith("PATCH secrets/"));
+    expect(writes).toHaveLength(1);
+    f.advance(60_001);
+    expect((await f.reconcile(20))?.session.status).toBe("stopped");
+    expect(f.mutations.filter((p) => p.startsWith("PATCH secrets/"))).toEqual(writes);
+    expect(f.allocations.size).toBe(0);
+  });
+
   it("runs initialization once across shifted phases and refresh, while update jobs follow the revision", async () => {
     const f = credentialProviderFixture(true, (entry, policy) => {
       entry.plan.resources.splice(1, 0, {
@@ -2017,7 +2332,7 @@ describe("Northflank generation credential delivery", () => {
   });
 
   it("counts retained deselected services before the first native effect write", async () => {
-    for (const count of [132, 133]) {
+    for (const count of [128, 129]) {
       const f = credentialProviderFixture(false);
       await f.command("start", { kind: "start", aliases: ["web"] });
       const entry = await f.reconcile();
@@ -2049,8 +2364,8 @@ describe("Northflank generation credential delivery", () => {
         entry!,
         gate,
       );
-      expect(receipt.outcome).toBe(count === 132 ? "cancelled" : "failed");
-      expect(receipt.cleanupRequired === true).toBe(count === 133);
+      expect(receipt.outcome).toBe(count === 128 ? "cancelled" : "failed");
+      expect(receipt.cleanupRequired === true).toBe(count === 129);
       expect(f.mutations).toHaveLength(mutations);
     }
   });
