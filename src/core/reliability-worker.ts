@@ -79,7 +79,7 @@ function outputPageBytes(page: LifecycleOutputPage): number {
   return Buffer.byteLength(JSON.stringify(page), "utf8");
 }
 
-/** Transient output for controller-owned commands; client reads never pause pipes. */
+/** Bounded transient command output; client reads never pause pipes. */
 export class LifecycleOutput {
   private chunks: { stream: "stdout" | "stderr"; data: Buffer; sequence: number }[] = [];
   private bytes = 0;
@@ -287,9 +287,10 @@ export async function runLifecycleWorker(
     throw new Error("The packaged lifecycle worker is missing; rebuild the CLI.");
   const child = fork(workerPath, [], {
     detached: true,
-    stdio:
-      supervision || request.kind === "ensure"
-        ? ["ignore", "pipe", "pipe", "ipc"]
+    stdio: supervision
+      ? ["ignore", "pipe", "pipe", "ipc"]
+      : request.kind === "ensure"
+        ? ["inherit", "pipe", "pipe", "ipc"]
         : ["inherit", "inherit", "inherit", "ipc"],
     execArgv: [],
   });

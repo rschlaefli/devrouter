@@ -168,7 +168,12 @@ export function readLifecycleDiagnostics(identity: ReliabilityIdentity, now = Da
       cancellationRequested: receipt.cancellationRequested,
       workerDrained: after.state.operation.drained,
     };
-    return { operationId: receipt.operationId, metadata, output: receipt.output };
+    return {
+      operationId: receipt.operationId,
+      revision: after.revision,
+      metadata,
+      output: receipt.output,
+    };
   } catch {
     return undefined;
   }

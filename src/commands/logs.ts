@@ -30,7 +30,10 @@ export async function runLogsCommand(options: LogsOptions): Promise<void> {
       : undefined;
     if (!receipt) throw new Error("Matching lifecycle diagnostic output is unavailable.");
     const output = Buffer.concat(receipt.output.map((chunk) => Buffer.from(chunk.data, "base64")));
-    process.stdout.write(output.toString("utf8").split("\n").slice(-lines).join("\n"));
+    const text = output.toString("utf8");
+    const terminated = text.endsWith("\n");
+    const entries = (terminated ? text.slice(0, -1) : text).split("\n");
+    process.stdout.write(entries.slice(-lines).join("\n") + (terminated ? "\n" : ""));
     return;
   }
   const running = await isContainerRunning(ROUTER_CONTAINER_NAME);

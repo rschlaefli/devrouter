@@ -129,7 +129,8 @@ function readReliabilityStatus(options: {
     ? readLifecycleDiagnostics(record.identity)
     : undefined;
   const diagnostics =
-    diagnosticReceipt?.operationId === record.state.operation?.id
+    diagnosticReceipt?.operationId === record.state.operation?.id &&
+    diagnosticReceipt?.revision === record.revision
       ? diagnosticReceipt?.metadata
       : undefined;
   const reason =

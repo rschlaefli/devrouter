@@ -208,7 +208,7 @@ function setupManagedRuntime(options: {
   vi.mocked(resolveWorkspaceRuntimeForReport).mockReturnValue(options.provider ?? "devsy");
   vi.mocked(readReliabilityOperation).mockReturnValue(
     options.reliability
-      ? ({ state: options.reliability, result: options.result ?? null } as never)
+      ? ({ revision: 1, state: options.reliability, result: options.result ?? null } as never)
       : undefined,
   );
   vi.mocked(runManagedProcessAction).mockImplementation(({ name }) => {
@@ -258,6 +258,7 @@ describe("collectManagedRuntimeStatus", () => {
     setupManagedRuntime({ containers: [], reliability });
     vi.mocked(readLifecycleDiagnostics).mockReturnValue({
       operationId: "building",
+      revision: 1,
       output: [{ stream: "stderr", data: Buffer.from("private-output").toString("base64") }],
       metadata: {
         stage: "provider",
@@ -290,6 +291,14 @@ describe("collectManagedRuntimeStatus", () => {
     expect(JSON.stringify(result)).not.toContain("private-output");
     expect(result.reliability?.operation).not.toHaveProperty("output");
     expect(runManagedProcessAction).not.toHaveBeenCalled();
+    vi.mocked(readLifecycleDiagnostics).mockReturnValue({
+      ...vi.mocked(readLifecycleDiagnostics).mock.results[0].value,
+      revision: 2,
+    });
+    expect(
+      collectManagedRuntimeStatus({ repoPath, workspace, config: managedConfig(), profile: "ai" })
+        .reliability?.operation?.diagnostics,
+    ).toBeUndefined();
     vi.mocked(readLifecycleDiagnostics).mockReturnValue({
       ...vi.mocked(readLifecycleDiagnostics).mock.results[0].value,
       operationId: "superseded",

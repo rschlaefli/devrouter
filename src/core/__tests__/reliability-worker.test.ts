@@ -181,6 +181,7 @@ describe("worker dispatch acknowledgement", () => {
     const write = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     vi.spyOn(process.stderr, "writableNeedDrain", "get").mockReturnValue(true);
     const pending = runLifecycleWorker(setup.request);
+    expect(fixture.fork.mock.calls[0][2].stdio[0]).toBe("inherit");
     await ready(setup.child);
     for (let index = 0; index < 8; index++) setup.child.stderr.emit("data", Buffer.alloc(65_536));
     setup.child.emit("message", { ok: true, value: 9 });

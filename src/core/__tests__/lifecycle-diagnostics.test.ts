@@ -183,4 +183,20 @@ describe("bounded lifecycle diagnostics", () => {
       write.mockRestore();
     }
   });
+
+  it.each([
+    true,
+    false,
+  ])("tails complete final lines with a terminal newline: %s", async (terminated) => {
+    const expected = `last-line${terminated ? "\n" : ""}`;
+    append(`first-line\n${expected}`);
+    await vi.advanceTimersByTimeAsync(250);
+    const write = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    try {
+      await runLogsCommand({ repo: request.repoPath, tail: "1" });
+      expect(write).toHaveBeenCalledExactlyOnceWith(expected);
+    } finally {
+      write.mockRestore();
+    }
+  });
 });
