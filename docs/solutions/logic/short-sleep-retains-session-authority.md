@@ -5,13 +5,13 @@ problem_type: logic
 severity: high
 symptoms:
   - "A pre-sleep generation remains renewable after a short host suspend."
-root_cause: Matching wall and monotonic deltas below the scheduling-gap threshold do not identify every host wake.
+root_cause: Matching wall and monotonic deltas below the scheduling-gap threshold and an unchanged kernel wake counter can miss a short host sleep.
 tags: [continuity, suspend, sessions, capacity, fail-closed]
 ---
 
 # A short sleep can retain stale session authority
 
-Status: corrected at source; exact-artifact short-sleep verification remains open.
+Status: wake-counter fences merged; real short-sleep verification failed.
 
 Timer discontinuity detection cannot identify every suspend. A sleep shorter
 than the scheduling-gap threshold can advance wall and monotonic clocks by
@@ -34,3 +34,11 @@ gap with matching clocks and a changed wake identity. Preserve the failed short
 receipt alongside any longer passing receipt; those are separate acceptance
 cells. Other platforms retain their existing timer checks and need their own
 bounded wake signal before claiming equivalent short-sleep coverage.
+
+The merged-artifact test left the kernel counter unchanged across a recorded
+short Sleep / DarkWake-to-FullWake cycle. The old session remained renewable.
+The source fences therefore do not establish complete short-sleep detection.
+Route survival and passing deterministic tests cannot substitute for this
+missing signal. The [active plan](../../project/2026-10-26-short-suspend-continuity-plan.md#merged-artifact-live-result)
+records the failed producer, cleanup and next evidence boundary. A replacement
+signal must be qualified across this transition before claiming correction.

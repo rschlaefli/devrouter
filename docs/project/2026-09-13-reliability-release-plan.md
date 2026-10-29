@@ -1,6 +1,6 @@
 # Reliable managed sessions through Devrouter 0.1.0
 
-**Current status (2026-10-26): released through 0.5.5; reliability acceptance
+**Current status (2026-10-26): released through 0.5.6; reliability acceptance
 remains active.** The [current repair and verification package](./2026-10-26-reliability-evidence-repair.md)
 records the merged sleep-verifier correction and explicit replacement-population
 stop recovery, including scoped live qualification. Release/source completion
@@ -10,9 +10,9 @@ does not establish complete M1–M3 acceptance.
 
 | Work | Current evidence and next boundary |
 | --- | --- |
-| Released lifecycle foundation | Releases through [0.5.5](https://github.com/rschlaefli/devrouter/releases/tag/v0.5.5) carry prior recovery, idle-stop, Linux and routing fixes. Release CI passed at `e0111372`; installation and downstream adoption are separate evidence. |
+| Released lifecycle foundation | Releases through [0.5.6](https://github.com/rschlaefli/devrouter/releases/tag/v0.5.6) carry prior recovery, idle-stop, Linux and routing fixes. The wake-counter fences in [PR #160](https://github.com/rschlaefli/devrouter/pull/160) are later merged source; release, installation and downstream adoption remain separate evidence. |
 | RF08 integrated canary | Open: requires an authorized consumer/profile and two environments, semantic readiness, fault/pressure/parking/resume proof and neighbour functionality. Isolated fixtures do not close this contract. |
-| RF09 / Q20 host suspend | Partially qualified: the September pass remains invalid acceptance evidence. After the verifier correction in [PR #156](https://github.com/rschlaefli/devrouter/pull/156), a fresh long-suspend retry passed on unchanged `1df0d0a6` artifacts: the old generation was invalidated, re-observation issued a fresh generation, the route remained functional, and cleanup was verified. A short-suspend attempt failed session invalidation; short suspends under the current timer policy remain an open coverage gap. This is source-revision qualification, not exact-release or consumer acceptance. |
+| RF09 / Q20 host suspend | Partially qualified: the September pass remains invalid acceptance evidence. After the verifier correction in [PR #156](https://github.com/rschlaefli/devrouter/pull/156), the unchanged `1df0d0a6` artifacts passed a fresh long-suspend retry. [PR #160](https://github.com/rschlaefli/devrouter/pull/160) added wake-counter fences, but its merged `4de6ddea` bundle failed the real short-suspend test: the counter remained unchanged and the old generation stayed renewable. Route continuity and exact fixture cleanup passed. Short-suspend acceptance remains open; the [active plan](./2026-10-26-short-suspend-continuity-plan.md#merged-artifact-live-result) records the failed producer and next evidence boundary. Neither result establishes exact-release or consumer acceptance. |
 | Explicit stop repair | [PR #156](https://github.com/rschlaefli/devrouter/pull/156) merged the bounded repair from [PR #130](https://github.com/rschlaefli/devrouter/pull/130), with retry/failure-boundary coverage. Scoped live replacement/refusal/repair/retry/data-retention verification passed; consumer recovery remains separately owned. |
 | RF11 consumer adoption | Open with the consumer owner. Its later task response did not require runtime recovery for its current work; that response is not the original checkout's ensure/smoke/stop receipt. |
 | Q26 quarantine | Symlink protections are source-qualified. The absent quarantine capability still requires an explicit unsupported disposition or separately scoped implementation. |
