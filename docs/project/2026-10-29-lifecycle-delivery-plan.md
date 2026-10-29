@@ -217,3 +217,20 @@ tests and synthetic provider proof never establish recovery of a real consumer.
 - Terminal: reviewed and checked draft candidate with exact source identity,
   producing regression evidence and explicit real-provider/pilot gaps. No
   cross-chat messaging is authorized by this delegated extension.
+- The installed closed-provider qualifier passes the stalled-build journey with
+  separate status/log readers while the lifecycle lock remains held. It verifies
+  cancellation, child-tree drainage, interrupted operation retention and canonical
+  stop with a retained synthetic backing marker. This is not a Docker named
+  volume test or pilot recovery. A harness watcher initially watched the wrong
+  directory; correcting its receipt path made that producing run pass.
+- Focused diagnostics, worker, managed status, operation/repair and prompt tests:
+  192 pass. The initial unconstrained full suite encountered two existing timing
+  limits; `vitest run --maxWorkers=4` passes all 3,397 tests with 13 Linux skips.
+  No timeout assertion or unrelated source is changed to hide that failure.
+  Docs policy, knowledge, Biome, Knip, typecheck, build, packed distribution,
+  scoped Opengrep and the installed synthetic lifecycle qualifier pass.
+  Independent integrated review and final CI remain pending before handoff.
+- The private read-only pilot comparison identifies replaced identities and a
+  current Compose hash mismatch. No repair command was attempted against that
+  runtime. The owner must resolve current configuration provenance before a
+  separately authorized attempt; component or synthetic checks cannot grant it.

@@ -1,13 +1,38 @@
 import { spawn, spawnSync } from "node:child_process";
 import { isContainerRunning } from "../core/docker";
+import { readLifecycleDiagnostics } from "../core/lifecycle-diagnostics";
 import { ROUTER_CONTAINER_NAME } from "../core/router";
+import { resolveWorktreeWorkspace } from "../core/workspace";
+import { resolveWorkspaceRuntimeForReport } from "../core/workspace-runtime";
+import { resolveGitCheckoutPath } from "./environment-path";
 
 type LogsOptions = {
   follow?: boolean;
   tail?: string;
+  repo?: string;
 };
 
 export async function runLogsCommand(options: LogsOptions): Promise<void> {
+  if (options.repo) {
+    if (options.follow)
+      throw new Error("Lifecycle logs are bounded snapshots; follow is unavailable.");
+    const repoPath = resolveGitCheckoutPath(options.repo);
+    const provider = resolveWorkspaceRuntimeForReport(repoPath);
+    const lines = Number(options.tail ?? "100");
+    if (!Number.isSafeInteger(lines) || lines < 1 || lines > 10_000)
+      throw new Error("Lifecycle log tail must be between 1 and 10000 lines.");
+    const receipt = provider
+      ? readLifecycleDiagnostics({
+          repoPath,
+          workspace: resolveWorktreeWorkspace(repoPath) ?? null,
+          provider,
+        })
+      : undefined;
+    if (!receipt) throw new Error("Matching lifecycle diagnostic output is unavailable.");
+    const output = Buffer.concat(receipt.output.map((chunk) => Buffer.from(chunk.data, "base64")));
+    process.stdout.write(output.toString("utf8").split("\n").slice(-lines).join("\n"));
+    return;
+  }
   const running = await isContainerRunning(ROUTER_CONTAINER_NAME);
   if (!running) {
     throw new Error("Router is not running. Start it with: dev up");

@@ -4,6 +4,8 @@ import type { ManagedDevcontainerPlan } from "../devcontainer-profile";
 import type { WorkspaceContainerSnapshot } from "../devpod-environment";
 import { collectManagedRuntimeStatus } from "../managed-runtime-status";
 
+vi.mock("../lifecycle-diagnostics", () => ({ readLifecycleDiagnostics: vi.fn() }));
+
 vi.mock("../devcontainer-profile", () => ({
   inspectManagedDevcontainerGeneratedConfig: vi.fn(),
   inspectManagedDevcontainerConfig: vi.fn(),
@@ -63,6 +65,7 @@ import {
 } from "../devcontainer-profile";
 import { inspectWorkspaceContainers, workspaceAppContainers } from "../devpod-environment";
 import { listHostRouteState } from "../host-routes";
+import { readLifecycleDiagnostics } from "../lifecycle-diagnostics";
 import { runManagedProcessAction } from "../managed-post-start";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "../managed-runtime-state";
 import { createReliabilityState, type ReliabilityState } from "../reliability-contract";
@@ -235,6 +238,7 @@ function refusedResult(): { ok: true; value: unknown } {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(readLifecycleDiagnostics).mockReset();
 });
 
 afterEach(() => {
@@ -242,6 +246,59 @@ afterEach(() => {
 });
 
 describe("collectManagedRuntimeStatus", () => {
+  it("exposes matching operation diagnostics without raw output or process mutation", () => {
+    const reliability = createReliabilityState("fixture", 1, "manual");
+    reliability.operation = {
+      id: "building",
+      kind: "ensure",
+      status: "RUNNING",
+      drained: false,
+      exitCode: null,
+    };
+    setupManagedRuntime({ containers: [], reliability });
+    vi.mocked(readLifecycleDiagnostics).mockReturnValue({
+      operationId: "building",
+      output: [{ stream: "stderr", data: Buffer.from("private-output").toString("base64") }],
+      metadata: {
+        stage: "provider",
+        elapsedMs: 500,
+        stageAgeMs: 500,
+        outputAgeMs: 500,
+        progressAgeMs: 500,
+        evidence: "recent",
+        buildPackage: "@fixture/util",
+        liveness: "unknown",
+        executionDeadlineAtMs: null,
+        handshakeTimeoutMs: 30_000,
+        cancellationGraceMs: 2_000,
+        cancellationRequested: false,
+        workerDrained: false,
+      },
+    });
+    const result = collectManagedRuntimeStatus({
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+    });
+    expect(result.reliability?.operation).toMatchObject({
+      operationId: "building",
+      phase: "running",
+      drained: false,
+      diagnostics: { stage: "provider", buildPackage: "@fixture/util", liveness: "unknown" },
+    });
+    expect(JSON.stringify(result)).not.toContain("private-output");
+    expect(result.reliability?.operation).not.toHaveProperty("output");
+    expect(runManagedProcessAction).not.toHaveBeenCalled();
+    vi.mocked(readLifecycleDiagnostics).mockReturnValue({
+      ...vi.mocked(readLifecycleDiagnostics).mock.results[0].value,
+      operationId: "superseded",
+    });
+    expect(
+      collectManagedRuntimeStatus({ repoPath, workspace, config: managedConfig(), profile: "ai" })
+        .reliability?.operation?.diagnostics,
+    ).toBeUndefined();
+  });
   it("returns legacy status without inspecting runtime resources", () => {
     const result = collectManagedRuntimeStatus({
       repoPath,

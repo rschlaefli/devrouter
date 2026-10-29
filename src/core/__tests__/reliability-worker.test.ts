@@ -175,6 +175,21 @@ describe("worker dispatch acknowledgement", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("drains manual ensure pipes despite a blocked presentation sink", async () => {
+    const setup = prepared();
+    setup.request.kind = "ensure";
+    const write = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    vi.spyOn(process.stderr, "writableNeedDrain", "get").mockReturnValue(true);
+    const pending = runLifecycleWorker(setup.request);
+    await ready(setup.child);
+    for (let index = 0; index < 8; index++) setup.child.stderr.emit("data", Buffer.alloc(65_536));
+    setup.child.emit("message", { ok: true, value: 9 });
+    setup.close();
+    await expect(pending).resolves.toBe(9);
+    expect(write).not.toHaveBeenCalled();
+    expect(setup.child.stderr.listenerCount("data")).toBe(0);
+  });
+
   it("suppresses progress after cancellation and clears timers after drainage", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "performance"] });
     const setup = prepared();

@@ -154,7 +154,16 @@ if (command === 'devpod' && args[0] === 'version') { console.log('fixture'); }
 else if (command === 'devsy' && args[0] === '--version') { console.log('fixture'); }
 else if (command === 'devpod' && args.join(' ') === 'list --output json --skip-pro') { output(state.provider === 'devpod' ? [{id:workspaceId,source:{localFolder:state.repo}}] : []); }
 else if (command === 'devsy' && args.join(' ') === 'workspace list --result-format json --skip-pro') { output(state.provider === 'devsy' ? [{id:workspaceId,uid:'fixture-uid',context:'default',provider:{name:'docker',options:{DOCKER_PATH:{value:'docker'}}},source:{localFolder:state.repo}}] : []); }
-else if (command === 'devpod' && [ 'up '+state.repo+' --id fixture --open-ide=false', 'up '+state.repo+' --id fixture --devcontainer-path .devcontainer/devcontainer.devrouter.json --open-ide=false' ].includes(args.join(' '))) { state.running=true; state.starts=(state.starts??0)+1; write(); if(state.mode === 'start-failure') process.exit(1); }
+else if (command === 'devpod' && [ 'up '+state.repo+' --id fixture --open-ide=false', 'up '+state.repo+' --id fixture --devcontainer-path .devcontainer/devcontainer.devrouter.json --open-ide=false' ].includes(args.join(' '))) {
+ state.running=true; state.starts=(state.starts??0)+1; write();
+ if(state.mode === 'start-failure') process.exit(1);
+ if(state.mode === 'build-hold') {
+  process.stderr.write('@fixture/util:build: compiling\\n');
+  const hook=require('node:child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
+  fs.writeFileSync(file+'.build',JSON.stringify({provider:process.pid,hook:hook.pid}));
+  setInterval(()=>{},1000);
+ }
+}
 else if (command === 'devpod' && args[0] === 'status' && args[1] === workspaceId) { output({id:workspaceId,state:state.running?'Running':'Stopped'}); }
 else if (command === 'devsy' && args[0] === 'workspace' && args[1] === 'status' && args[2] === workspaceId) { output({id:workspaceId,state:state.running?'Running':'Stopped'}); }
 else if (command === 'curl') {
@@ -343,6 +352,9 @@ else fail();
           releaseNetwork = () => response.end(JSON.stringify({ Name: "devnet" }));
           fs.writeFileSync(`${fixture}.network-barrier`, "entered");
         } else response.end(JSON.stringify({ Name: "devnet" }));
+      } else if (request.method === "GET" && request.url?.startsWith("/containers/json?")) {
+        response.setHeader("content-type", "application/json");
+        response.end("[]");
       } else {
         fs.appendFileSync(`${fixture}.unexpected`, `${request.method} ${request.url}\n`);
         response.writeHead(500);
@@ -484,6 +496,63 @@ else fail();
       assert.equal(afterRepair.starts, beforeRepair.starts);
       assert.equal(JSON.parse(fs.readFileSync(stateFile, "utf8")).status, "ready");
       assert.equal(fs.readFileSync(generated, "utf8"), generatedBefore);
+      const volumeMarker = path.join(root, "synthetic-volume-marker");
+      fs.writeFileSync(volumeMarker, "retained-synthetic-data");
+      configure("build-hold");
+      const building = launch(["ensure", repo, "--json"]);
+      await watchUntil(`${fixture}.build`, () => fs.existsSync(`${fixture}.build`));
+      const diagnosticsDirectory = path.join(
+        closedEnv.HOME,
+        ".config/devrouter/lifecycle-diagnostics",
+      );
+      const diagnosticFile = path.join(diagnosticsDirectory, path.basename(journal));
+      await watchUntil(diagnosticFile, () =>
+        fs.readdirSync(diagnosticsDirectory).some((name) => {
+          const receipt = JSON.parse(
+            fs.readFileSync(path.join(diagnosticsDirectory, name), "utf8"),
+          );
+          return receipt.buildPackage === "@fixture/util";
+        }),
+      );
+      const inspect = launch(["status", "--repo", repo, "--json"]);
+      assert.equal(await inspect.done, 0, inspect.output());
+      const operation = JSON.parse(inspect.stdout()).repo.managedRuntime.reliability.operation;
+      assert.equal(operation.phase, "running");
+      assert.equal(operation.diagnostics.stage, "provider");
+      assert.equal(operation.diagnostics.buildPackage, "@fixture/util");
+      assert.equal(operation.diagnostics.liveness, "unknown");
+      assert.equal(operation.diagnostics.executionDeadlineAtMs, null);
+      assert.equal(operation.drained, false);
+      const log = invoke(["logs", "--repo", repo]);
+      assert.equal(log.status, 0, log.stderr);
+      assert.ok(log.stdout.includes("@fixture/util:build:"));
+      assert.equal(read().state.operation.id, operation.operationId);
+      assert.equal(building.child.exitCode, null);
+      building.child.kill("SIGTERM");
+      assert.equal(await building.done, 1, building.output());
+      assert.equal(read().state.operation.status, "INTERRUPTED");
+      assert.equal(read().state.operation.drained, true);
+      assert.equal(read().worker, null);
+      const pids = JSON.parse(fs.readFileSync(`${fixture}.build`, "utf8"));
+      for (const pid of Object.values(pids) as number[]) {
+        const processState = spawnSync("ps", ["-p", String(pid), "-o", "stat="], {
+          encoding: "utf8",
+        });
+        assert.ok(
+          processState.status !== 0 || processState.stdout.trim().startsWith("Z"),
+          "synthetic build child remained live",
+        );
+      }
+      expectExit(["logs", "--repo", repo], 0);
+      expectExit(["stop", repo, "--json"], 0);
+      assert.equal(JSON.parse(fs.readFileSync(fixture, "utf8")).running, false);
+      assert.equal(fs.readFileSync(volumeMarker, "utf8"), "retained-synthetic-data");
+      evidence.push(
+        "synthetic provider build remains inspectable during held lifecycle lock, cancellation drains its child tree, canonical stop retains the synthetic volume marker",
+      );
+      configure("complete");
+      const afterInterruption = launch(["ensure", repo, "--json"]);
+      assert.equal(await afterInterruption.done, 0, afterInterruption.output());
       evidence.push(
         "installed ordinary ensure repairs retained degraded state with one adapter run and no provider bootstrap",
       );

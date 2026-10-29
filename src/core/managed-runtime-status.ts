@@ -19,6 +19,8 @@ import {
   workspaceAppContainers,
 } from "./devpod-environment";
 import { listHostRouteState } from "./host-routes";
+import { readLifecycleDiagnostics } from "./lifecycle-diagnostics";
+import { projectLifecycleOperation } from "./lifecycle-operation-status";
 import { observeManagedMountNesting } from "./managed-mount-nesting";
 import { runManagedProcessAction } from "./managed-post-start";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
@@ -123,6 +125,13 @@ function readReliabilityStatus(options: {
     return undefined;
   }
   if (!record) return undefined;
+  const diagnosticReceipt = record.state.operation
+    ? readLifecycleDiagnostics(record.identity)
+    : undefined;
+  const diagnostics =
+    diagnosticReceipt?.operationId === record.state.operation?.id
+      ? diagnosticReceipt?.metadata
+      : undefined;
   const reason =
     reliabilityAttention(record.state) ??
     (record.state.desired === "running" && refusedManagedStart(record.result)
@@ -139,6 +148,16 @@ function readReliabilityStatus(options: {
           actionLimit: record.state.incident.actionLimit,
         }
       : null,
+    ...(record.state.operation
+      ? {
+          operation: {
+            ...projectLifecycleOperation(record.state.operation),
+            kind: record.state.operation.kind,
+            drained: record.state.operation.drained,
+            ...(diagnostics ? { diagnostics } : {}),
+          },
+        }
+      : {}),
     ...(reason
       ? {
           attention: {

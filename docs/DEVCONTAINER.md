@@ -133,6 +133,22 @@ bookkeeping cannot prove that earlier work stopped. Corrupt or incompatible
 records fail closed. Operation history is bounded and refuses new dispatch when
 full; it is not silently discarded.
 
+While a managed ensure holds the lifecycle lock, `devrouter status --repo <path>
+--json` reports its operation, last stage, elapsed time and observed build-package
+hint when available. Distinct output age is separate from phase receipts;
+heartbeats and recent output never establish liveness. The execution deadline is
+explicitly absent. The worker handshake limit and cancellation grace describe
+different boundaries and are not build deadlines.
+
+`devrouter logs --repo <path> --tail 100` reads the latest matching ensure's
+private output snapshot without queuing exec or acquiring the lifecycle lock.
+The tail is capped at 32 KiB and can contain application output; ordinary status
+contains only structured metadata. Follow is unavailable for this snapshot.
+Unsafe files, changed operation identity or intent fences make evidence
+unavailable. Cancellation preserves the matching diagnostics and operation
+record; only journal-backed process-group drainage establishes worker cessation.
+Default `devrouter logs` continues to show Traefik logs.
+
 These commands provide manual lifecycle coordination. They do not enroll the
 machine in resource admission, prevent OOM, or enable capacity-managed parking/recovery.
 

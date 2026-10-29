@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { DevsyExecProof } from "./devsy-exec-proof";
 import { processBirthIdentity } from "./file-lock";
+import { LifecycleDiagnosticRecorder } from "./lifecycle-diagnostics";
 import {
   isLifecycleProgressPhase,
   type LifecycleProgressPhase,
@@ -286,9 +287,10 @@ export async function runLifecycleWorker(
     throw new Error("The packaged lifecycle worker is missing; rebuild the CLI.");
   const child = fork(workerPath, [], {
     detached: true,
-    stdio: supervision
-      ? ["ignore", "pipe", "pipe", "ipc"]
-      : ["inherit", "inherit", "inherit", "ipc"],
+    stdio:
+      supervision || request.kind === "ensure"
+        ? ["ignore", "pipe", "pipe", "ipc"]
+        : ["inherit", "inherit", "inherit", "ipc"],
     execArgv: [],
   });
   let ready = false;
@@ -305,6 +307,10 @@ export async function runLifecycleWorker(
   let progressPhase: LifecycleProgressPhase | undefined;
   let progressReceivedAt: number | undefined;
   let progressTimer: ReturnType<typeof setInterval> | undefined;
+  const output =
+    supervision?.output ?? (request.kind === "ensure" ? new LifecycleOutput() : undefined);
+  let diagnostics: LifecycleDiagnosticRecorder | undefined;
+  let droppedDirectOutput = false;
   const emitProgress = () => {
     if (closed || cancelled || request.kind === "exec" || lifecycleProgressHeartbeatMuted()) return;
     const data = `${JSON.stringify(lifecycleProgressSnapshot(progressPhase, progressReceivedAt, performance.now()))}\n`;
@@ -319,6 +325,7 @@ export async function runLifecycleWorker(
   const cancel = () => {
     if (cancelled || closed) return;
     cancelled = true;
+    diagnostics?.cancel();
     try {
       signalOwnedGroup(child, "SIGTERM");
     } catch (error) {
@@ -333,11 +340,36 @@ export async function runLifecycleWorker(
     }, 2_000);
   };
   const onSignal = () => cancel();
-  const stdout = (data: Buffer) => supervision?.output.append("stdout", data);
-  const stderr = (data: Buffer) => supervision?.output.append("stderr", data);
-  if (supervision) {
+  const forward = (stream: "stdout" | "stderr", data: Buffer) => {
+    output?.append(stream, data);
+    diagnostics?.append(stream, data);
+    if (!supervision) {
+      try {
+        const destination = stream === "stdout" ? process.stdout : process.stderr;
+        if (destination.destroyed || destination.writableNeedDrain) {
+          droppedDirectOutput = true;
+          return;
+        }
+        if (droppedDirectOutput && !process.stderr.writableNeedDrain) {
+          droppedDirectOutput = false;
+          process.stderr.write(
+            "devrouter: a slow output sink dropped command output; the latest bounded ensure tail is available with logs --repo.\n",
+            () => {},
+          );
+        }
+        destination.write(data, () => {});
+      } catch {
+        // An unavailable presentation sink does not change operation completion.
+      }
+    }
+  };
+  const stdout = (data: Buffer) => forward("stdout", data);
+  const stderr = (data: Buffer) => forward("stderr", data);
+  if (output) {
     child.stdout?.on("data", stdout);
     child.stderr?.on("data", stderr);
+  }
+  if (supervision) {
     supervision.signal.addEventListener("abort", onSignal, { once: true });
     if (supervision.signal.aborted) cancel();
   } else {
@@ -367,6 +399,7 @@ export async function runLifecycleWorker(
           ) {
             progressPhase = message.lifecycleProgress;
             progressReceivedAt = performance.now();
+            diagnostics?.phase(message.lifecycleProgress);
             emitProgress();
           }
           return;
@@ -481,6 +514,8 @@ export async function runLifecycleWorker(
             beforeAdmission?.();
             if (cancelled) throw new Error("Lifecycle invocation was cancelled before dispatch.");
             sendAttempted = true;
+            if (request.kind === "ensure" && output)
+              diagnostics = new LifecycleDiagnosticRecorder(request, () => output.read());
             child.send({ request }, (error) => {
               if (error) {
                 failure = error;
@@ -542,6 +577,7 @@ export async function runLifecycleWorker(
         } catch (error) {
           failure = error instanceof Error ? error : new Error(String(error));
         }
+        diagnostics?.close();
         if (failure) reject(failure);
         else if (!result?.ok)
           reject(
@@ -553,6 +589,7 @@ export async function runLifecycleWorker(
       });
     });
   } finally {
+    diagnostics?.close();
     if (progressTimer) clearInterval(progressTimer);
     if (readinessTimer) clearTimeout(readinessTimer);
     if (monitor) clearInterval(monitor);

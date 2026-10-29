@@ -110,3 +110,19 @@ provider/daemon binding and repeated population observations remain required.
 The recovery tests exercise a replaced primary, altered retained dependency
 identity and a change between observations. See [partial replacement repair
 PR #166](https://github.com/rschlaefli/devrouter/pull/166).
+
+### Interrupted provisioning does not publish a new stop baseline
+
+A provider can create a replacement generation before its build hook completes.
+Managed ownership capture occurs after provisioning proof, so cancellation in
+that hook can leave the previous baseline intact. Ordinary stop must refuse
+different immutable IDs. Explicit repair can capture a replacement only after
+the current Compose model, complete population and all provider/mount/runner
+evidence pass the existing repeated checks. A configuration-hash mismatch is an
+independent refusal; missing processes do not authorize adopting it.
+
+Read `status --repo <checkout> --json` and the explicit bounded `logs --repo
+<checkout>` snapshot during provisioning. Distinct output, stage receipts,
+deadlines and process-group drainage answer different questions. Synthetic
+interruption tests protect this composition, while real named-volume retention
+and consumer recovery require their own producing runtime evidence.

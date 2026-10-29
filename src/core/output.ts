@@ -322,6 +322,24 @@ function appendManagedRuntimeRows(rows: string[][], managedRuntime: ManagedRunti
     const reliability = managedRuntime.reliability;
     rows.push(["Lifecycle intent", reliability.desired]);
     rows.push(["Lifecycle phase", reliability.phase]);
+    if (reliability.operation) {
+      const operation = reliability.operation;
+      rows.push(["Lifecycle operation", `${operation.operationId} (${operation.phase})`]);
+      rows.push(["Operation outcome", operation.outcome ?? "unknown"]);
+      rows.push(["Worker drained", operation.drained ? "yes" : "no"]);
+      if (operation.diagnostics) {
+        const diagnostic = operation.diagnostics;
+        rows.push(["Operation stage", `${diagnostic.stage} (${diagnostic.evidence})`]);
+        rows.push(["Operation elapsed", `${diagnostic.elapsedMs}ms`]);
+        rows.push(["Last build package", diagnostic.buildPackage ?? "unknown"]);
+        rows.push([
+          "Last distinct output",
+          diagnostic.progressAgeMs === null ? "unknown" : `${diagnostic.progressAgeMs}ms ago`,
+        ]);
+        rows.push(["Operation liveness", diagnostic.liveness]);
+        rows.push(["Execution deadline", "none"]);
+      }
+    }
     rows.push(["Capacity admission", reliability.admission]);
     rows.push(["Capacity charge held", reliability.chargeHeld ? "yes" : "no"]);
     rows.push([

@@ -137,6 +137,15 @@ the checking stage rather than successful readiness. Exec output is unchanged.
 Controller invocations retain these lines in their existing bounded output buffer.
 Progress delivery never grants lifecycle authority or changes operation results.
 
+Managed status composes the current operation projection with a bounded private
+ensure diagnostic receipt under `~/.config/devrouter/lifecycle-diagnostics/`.
+The receipt is separate from lifecycle authority and journal enumeration. Readers
+compare journal/receipt/journal identity and fences without a mutation lock.
+Raw output remains outside status and the journal; explicit `logs --repo` reads
+at most 32 KiB for the matching latest ensure. Package names are observed task
+labels, not proof that a package is still executing. Output freshness, phase
+freshness, execution deadlines and journal-proven drainage remain distinct.
+
 ## Profile transitions
 
 The native Dev Container view remains full: its source configuration describes
