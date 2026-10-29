@@ -764,6 +764,11 @@ describe("explicit replacement population stop recovery", () => {
     expect(() => stopFromManagedBaseline(state)).toThrow();
     expect(readManagedRuntimeState(state.repoPath, state.workspace)).toEqual(previous);
     const candidate = recoverManagedStopBaseline(state, () => plan, vi.fn());
+    expect(
+      vi
+        .mocked(assertManagedContainerConfigUnchanged)
+        .mock.calls.every(([options]) => options.endpoint === endpoint),
+    ).toBe(true);
     expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
     expect(candidate.status).toBe("degraded");
     expect(candidate.stopBaseline?.containers.map((container) => container.id)).toEqual(

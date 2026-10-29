@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -418,6 +419,184 @@ describe("managed Dev Container config", () => {
     expect(options).toEqual(expect.objectContaining({ input: resolved }));
     expect(options?.input).not.toContain("must-not-be-expanded");
     expect(fs.existsSync(plan.generatedPath)).toBe(false);
+  });
+
+  describe("resolved service network namespaces", () => {
+    function fixture() {
+      const plan = inspectManagedDevcontainerConfig({
+        repoPath: tmpDir,
+        config: managedConfig,
+        linked: false,
+      });
+      const primaryId = "1".repeat(64);
+      const sharingId = "2".repeat(64);
+      const model = {
+        services: {
+          app: { image: "fixture", environment: { LITERAL: "$VALUE" } },
+          postgres: { image: "fixture-db", network_mode: "service:app" },
+        },
+      };
+      const hash = (value: unknown) =>
+        createHash("sha256").update(JSON.stringify(value)).digest("hex");
+      const primary = retainedContainer(plan, hash(model.services.app));
+      primary.id = primaryId;
+      primary.mounts = [{ Type: "bind", Source: tmpDir, Destination: "/workspace" }];
+      const sharing = retainedContainer(
+        plan,
+        hash({ ...model.services.postgres, network_mode: `container:${primaryId}` }),
+        "postgres",
+      );
+      sharing.id = sharingId;
+      const containers = [primary, sharing];
+      const inspected = [
+        { id: sharingId, networkMode: `container:${primaryId}` },
+        { id: primaryId, networkMode: "fixture_default" },
+      ];
+      let inspections = 0;
+      const inspectionResult = vi.fn((stdout: string) => ({ status: 0, stdout, stderr: "" }));
+      const changeInspection = vi.fn((rows: typeof inspected, _count: number) => rows);
+      vi.mocked(spawnSync).mockClear();
+      vi.mocked(spawnSync).mockImplementation((_command, args, options) => {
+        if (args?.includes("inspect")) {
+          return inspectionResult(
+            changeInspection(inspected, ++inspections)
+              .map((row) => JSON.stringify(row))
+              .join("\n"),
+          ) as never;
+        }
+        if (args?.includes("--hash")) {
+          const input = JSON.parse(String(options?.input));
+          const service = args.at(-1) as string;
+          return { status: 0, stdout: `${service} ${hash(input.services[service])}\n` } as never;
+        }
+        return { status: 0, stdout: JSON.stringify(model).replaceAll("$", "$$") } as never;
+      });
+      return {
+        plan,
+        model,
+        containers,
+        primary,
+        sharing,
+        inspected,
+        changeInspection,
+        inspectionResult,
+      };
+    }
+
+    it("accepts only the exact owned namespace while hashing every other field unchanged", () => {
+      const { plan, model, containers, primary } = fixture();
+      const source = fs.readFileSync(plan.composeFiles[0]);
+      vi.stubEnv("DOCKER_CONTEXT", "foreign-context");
+      const endpoint = "unix:///synthetic/owned.sock";
+      assertManagedContainerConfigUnchanged({ plan, containers, endpoint });
+      const inspections = vi
+        .mocked(spawnSync)
+        .mock.calls.filter(([, args]) => args?.includes("inspect"));
+      expect(inspections).toHaveLength(2);
+      for (const [, args, options] of inspections) {
+        expect(args?.slice(-2)).toEqual([containers[1].id, primary.id]);
+        expect(options).toEqual(
+          expect.objectContaining({
+            env: expect.objectContaining({ DOCKER_HOST: endpoint }),
+            timeout: 10_000,
+            maxBuffer: 1024 * 1024,
+            stdio: ["ignore", "pipe", "ignore"],
+          }),
+        );
+        expect(options?.env?.DOCKER_CONTEXT).toBeUndefined();
+      }
+      const hashes = vi.mocked(spawnSync).mock.calls.filter(([, args]) => args?.includes("--hash"));
+      expect(JSON.parse(String(hashes.at(-1)?.[2]?.input))).toEqual({
+        ...model,
+        services: {
+          ...model.services,
+          postgres: { ...model.services.postgres, network_mode: `container:${primary.id}` },
+        },
+      });
+      expect(fs.readFileSync(plan.composeFiles[0])).toEqual(source);
+      expect(
+        vi
+          .mocked(spawnSync)
+          .mock.calls.some(([, args]) =>
+            args?.some((arg) => ["up", "stop", "rm"].includes(String(arg))),
+          ),
+      ).toBe(false);
+    });
+
+    it("preserves an already matching unresolved hash without namespace fallback", () => {
+      const { plan, model, containers, sharing } = fixture();
+      sharing.labels["com.docker.compose.config-hash"] = createHash("sha256")
+        .update(JSON.stringify(model.services.postgres))
+        .digest("hex");
+      assertManagedContainerConfigUnchanged({ plan, containers });
+      expect(vi.mocked(spawnSync).mock.calls.some(([, args]) => args?.includes("inspect"))).toBe(
+        false,
+      );
+    });
+
+    it.each([
+      "missing",
+      "duplicate",
+      "foreign-project",
+      "foreign-path",
+      "foreign-files",
+      "foreign-mount",
+      "short-id",
+    ])("refuses a %s target instead of adopting project labels", (kind) => {
+      const { plan, containers, primary } = fixture();
+      if (kind === "missing") containers.shift();
+      if (kind === "duplicate") containers.push({ ...primary, id: "3".repeat(64) });
+      if (kind === "foreign-project") primary.labels["com.docker.compose.project"] = "foreign";
+      if (kind === "foreign-path")
+        primary.labels["com.docker.compose.project.working_dir"] = "/foreign/.devcontainer";
+      if (kind === "foreign-files")
+        primary.labels["com.docker.compose.project.config_files"] = plan.composeFiles[0];
+      if (kind === "foreign-mount") primary.mounts[0].Source = "/foreign";
+      if (kind === "short-id") primary.id = primary.id.slice(0, 12);
+      expect(() => assertManagedContainerConfigUnchanged({ plan, containers })).toThrow();
+    });
+
+    it.each([
+      "missing",
+      "foreign-id",
+      "duplicate",
+      "wrong-namespace",
+      "raced-target",
+      "raced-namespace",
+      "malformed",
+    ])("refuses %s live namespace evidence", (kind) => {
+      const { plan, containers, changeInspection } = fixture();
+      changeInspection.mockImplementation((rows, count) => {
+        if (kind === "missing") return rows.slice(0, 1);
+        if (kind === "foreign-id" || (kind === "raced-target" && count > 1))
+          return [rows[0], { ...rows[1], id: "3".repeat(64) }];
+        if (kind === "duplicate") return [rows[0], rows[0]];
+        if (kind === "wrong-namespace" || (kind === "raced-namespace" && count > 1))
+          return [{ ...rows[0], networkMode: `container:${"3".repeat(64)}` }, rows[1]];
+        if (kind === "malformed") return [{ id: rows[0].id } as (typeof rows)[number], rows[1]];
+        return rows;
+      });
+      expect(() => assertManagedContainerConfigUnchanged({ plan, containers })).toThrow();
+    });
+
+    it.each([
+      { status: 1, stdout: "", stderr: "fixture-sensitive-error" },
+      { status: 0, stdout: "fixture-invalid-json", stderr: "fixture-sensitive-error" },
+    ])("suppresses failed or malformed namespace inspection output", (result) => {
+      const { plan, containers, inspectionResult } = fixture();
+      inspectionResult.mockReturnValue(result);
+      expect(() => assertManagedContainerConfigUnchanged({ plan, containers })).toThrow(Error);
+      expect(inspectionResult).toHaveBeenCalledTimes(1);
+    });
+
+    it("still refuses genuine non-namespace configuration drift", () => {
+      const { plan, model, containers } = fixture();
+      model.services.postgres.image = "changed-image";
+      expect(() => assertManagedContainerConfigUnchanged({ plan, containers })).toThrow(Error);
+      expect(
+        vi.mocked(spawnSync).mock.calls.filter(([, args]) => args?.includes("inspect")),
+      ).toHaveLength(2);
+    });
   });
 
   it("rejects a missing Compose hash label before invoking Docker", () => {

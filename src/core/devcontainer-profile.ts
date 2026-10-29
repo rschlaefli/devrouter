@@ -6,7 +6,7 @@ import YAML from "yaml";
 import type { DevrouterConfig, DevrouterProfile } from "../types";
 import { writeFileAtomically } from "./atomic-file";
 import { readDevcontainerConfig } from "./devcontainer-config";
-import type { WorkspaceContainerSnapshot } from "./devpod-environment";
+import { hasExactComposeIdentity, type WorkspaceContainerSnapshot } from "./devpod-environment";
 import { networkDockerEnvironment, networkDockerOptions } from "./network-effect-scope";
 import { assertPathWithinRepo } from "./paths";
 import { sameWorkspacePath } from "./workspace";
@@ -373,10 +373,109 @@ function assertReadableComposeFile(file: string): void {
   }
 }
 
+function resolveManagedServiceNetworkNamespace(options: {
+  plan: ManagedDevcontainerPlan;
+  containers: WorkspaceContainerSnapshot[];
+  container: WorkspaceContainerSnapshot;
+  serviceConfig: JsonObject;
+  env: NodeJS.ProcessEnv;
+}): () => void {
+  const { plan, containers, container, serviceConfig, env } = options;
+  const service = container.labels["com.docker.compose.service"];
+  const targetService = String(serviceConfig.network_mode).slice("service:".length);
+  const target = containers.filter(
+    (item) => item.labels["com.docker.compose.service"] === targetService,
+  );
+  const primary = containers.filter(
+    (item) => item.labels["com.docker.compose.service"] === plan.primaryService,
+  );
+  const repoPath = path.dirname(plan.composeDirectory);
+  const owned = (item: WorkspaceContainerSnapshot) =>
+    /^[a-f0-9]{64}$/.test(item.id) &&
+    containers.filter((candidate) => candidate.id === item.id).length === 1 &&
+    containers.filter(
+      (candidate) =>
+        candidate.labels["com.docker.compose.service"] ===
+        item.labels["com.docker.compose.service"],
+    ).length === 1 &&
+    plan.desiredServices.includes(item.labels["com.docker.compose.service"] ?? "") &&
+    hasExactComposeIdentity(item, {
+      repoPath,
+      service: item.labels["com.docker.compose.service"] ?? "",
+      composeProject: container.labels["com.docker.compose.project"],
+      composeFiles: plan.composeFiles,
+    });
+  if (
+    targetService === service ||
+    target.length !== 1 ||
+    primary.length !== 1 ||
+    !owned(container) ||
+    !owned(target[0]) ||
+    !owned(primary[0]) ||
+    primary[0].mounts.filter(
+      (mount) => mount.Type === "bind" && sameWorkspacePath(mount.Source, repoPath),
+    ).length !== 1
+  ) {
+    throw new Error("Managed service network namespace ownership is unavailable.");
+  }
+  const namespace = `container:${target[0].id}`;
+  const ids = [container.id, target[0].id];
+  const inspect = () => {
+    const result = spawnSync(
+      "docker",
+      [
+        "inspect",
+        "--type",
+        "container",
+        "--format",
+        '{"id":{{json .Id}},"networkMode":{{json .HostConfig.NetworkMode}}}',
+        ...ids,
+      ],
+      {
+        env,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: COMPOSE_HASH_TIMEOUT_MS,
+        maxBuffer: 1024 * 1024,
+      },
+    );
+    if (result.status !== 0 || result.error || !result.stdout?.trim()) {
+      throw new Error("Managed service network namespace inspection failed.");
+    }
+    const rows: unknown[] = result.stdout
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line));
+    if (
+      rows.length !== ids.length ||
+      ids.some(
+        (id) =>
+          rows.filter(
+            (row) => isObject(row) && row.id === id && typeof row.networkMode === "string",
+          ).length !== 1,
+      ) ||
+      !rows.some((row) => isObject(row) && row.id === container.id && row.networkMode === namespace)
+    ) {
+      throw new Error("Managed service network namespace identity changed.");
+    }
+    return ids.map((id) => rows.find((row) => isObject(row) && row.id === id));
+  };
+  const before = JSON.stringify(inspect());
+  // Compose may hash the resolved namespace. Substitute only a proven exact
+  // target in memory; every other service field still participates in its hash.
+  serviceConfig.network_mode = namespace;
+  return () => {
+    if (JSON.stringify(inspect()) !== before) {
+      throw new Error("Managed service network namespace changed during configuration inspection.");
+    }
+  };
+}
+
 export function assertManagedContainerConfigUnchanged(options: {
   plan: ManagedDevcontainerPlan;
   containers: WorkspaceContainerSnapshot[];
   workspace?: { token: string; gitCommonDir: string };
+  endpoint?: string;
 }): void {
   if (options.containers.length === 0) {
     throw new Error("Managed container configuration cannot be verified without containers.");
@@ -426,6 +525,10 @@ export function assertManagedContainerConfigUnchanged(options: {
           workingDirectory,
         ];
         const env = managedComposeEnvironment(options.workspace);
+        if (options.endpoint) {
+          env.DOCKER_HOST = options.endpoint;
+          delete env.DOCKER_CONTEXT;
+        }
         // Some Compose versions skip env_file resolution in config --hash.
         // Render first, then hash via stdin without interpolating values again.
         // Compose escapes every dollar in this serialized output. Undo that
@@ -446,19 +549,53 @@ export function assertManagedContainerConfigUnchanged(options: {
         if (rendered.status !== 0 || rendered.error || !rendered.stdout?.trim()) {
           throw new Error("Compose configuration rendering failed.");
         }
-        return spawnSync(
-          "docker",
-          [...composeArgs, "-f", "-", "config", "--no-interpolate", "--hash", service],
-          {
-            cwd: workingDirectory,
-            encoding: "utf-8",
-            env,
-            input: rendered.stdout.replaceAll("$$", "$"),
-            stdio: ["pipe", "pipe", "ignore"],
-            timeout: COMPOSE_HASH_TIMEOUT_MS,
-            maxBuffer: 1024 * 1024,
-          },
-        );
+        const hash = (input: string) =>
+          spawnSync(
+            "docker",
+            [...composeArgs, "-f", "-", "config", "--no-interpolate", "--hash", service],
+            {
+              cwd: workingDirectory,
+              encoding: "utf-8",
+              env,
+              input,
+              stdio: ["pipe", "pipe", "ignore"],
+              timeout: COMPOSE_HASH_TIMEOUT_MS,
+              maxBuffer: 1024 * 1024,
+            },
+          );
+        const input = rendered.stdout.replaceAll("$$", "$");
+        const result = hash(input);
+        const match =
+          typeof result.stdout === "string"
+            ? /^(\S+)\s+([a-f0-9]{64})$/.exec(result.stdout.trim())
+            : null;
+        if (
+          result.status !== 0 ||
+          result.error ||
+          !match ||
+          match[1] !== service ||
+          match[2] === expectedHash
+        )
+          return result;
+        const model: unknown = JSON.parse(input);
+        const serviceConfig =
+          isObject(model) && isObject(model.services) ? model.services[service] : undefined;
+        if (
+          !isObject(serviceConfig) ||
+          typeof serviceConfig.network_mode !== "string" ||
+          !serviceConfig.network_mode.startsWith("service:")
+        )
+          return result;
+        const revalidate = resolveManagedServiceNetworkNamespace({
+          plan: options.plan,
+          containers: options.containers,
+          container,
+          serviceConfig,
+          env,
+        });
+        const resolved = hash(JSON.stringify(model));
+        revalidate();
+        return resolved;
       } catch {
         throw new Error(`Could not verify managed Compose configuration for service '${service}'.`);
       }

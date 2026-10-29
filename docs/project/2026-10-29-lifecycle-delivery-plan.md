@@ -229,8 +229,64 @@ tests and synthetic provider proof never establish recovery of a real consumer.
   No timeout assertion or unrelated source is changed to hide that failure.
   Docs policy, knowledge, Biome, Knip, typecheck, build, packed distribution,
   scoped Opengrep and the installed synthetic lifecycle qualifier pass.
-  Independent integrated review and final CI remain pending before handoff.
+  Independent integrated review and correction verification passed. The exact
+  delivered head `7ed4ac10` passed [CI](https://github.com/rschlaefli/devrouter/actions/runs/40903742837)
+  with 3,412 tests. Its merge-ref tree matched that head; real-provider
+  and consumer acceptance remain unqualified.
 - Consumer impact was checked privately; its observations remain outside shared
   artifacts. An owner must prove current configuration provenance and ownership
   before a separately authorized recovery attempt. Component or synthetic checks
   cannot grant that authority or establish consumer recovery.
+
+## Approved namespace-equivalence correction
+
+The existing consumer owner requested one focused source correction after
+read-only verification. The same draft and worktree retain ownership. This
+executable batch covers source, synthetic regression tests, scoped independent
+review, ordinary publication and exact-head CI. It excludes installation,
+release, merge, consumer runtime attempts, reset, stop and cleanup. Return the
+qualified candidate through the normal task result.
+
+The configuration guard first preserves an already matching rendered service
+hash. On a well-formed mismatch for `network_mode: service:<name>`, it can retry
+only with the equivalent exact owned container namespace. Both services must
+come from the caller-proven population with unique full immutable IDs, validated
+project/source/config-file identity and the exact primary checkout mount. It
+inspects only those IDs on the pinned endpoint, requires the sharing namespace
+to name that exact target, changes only the service's namespace in memory, hashes
+the complete service again, and revalidates the IDs and namespace afterward.
+Existing provider, daemon, runner, complete-population, mount and lifecycle
+proofs remain authoritative. Ordinary stop and explicit replacement repair
+retain separate contracts. No product primitive or public command is added.
+
+Implementation extends the existing guard and regression file, propagates the
+known endpoint from the two stop callers, and updates the owning lifecycle
+knowledge paragraph. No new module or dependency is needed. The first useful
+acceptance is the reproduced false refusal becoming a pass while foreign,
+missing, ambiguous or raced targets and genuine configuration drift still
+refuse. Source bytes and non-namespace model fields remain unchanged. Real
+Docker volume and consumer recovery acceptance remain with their runtime owner.
+
+Correction progress:
+
+- Baseline and upstream: `7ed4ac10`, clean and synchronized; main remains
+  `de4ba1e4`, with zero target drift. The old positive namespace regression fails
+  with the expected service configuration-change refusal.
+- Independent plan critique passed against a generic source-only packet.
+  Already matching hashes keep their original path for version compatibility.
+- The guard has 36 passing tests; all 518 affected tests and typecheck pass.
+  The full suite passes 3,418 tests with 13 Linux skips. Docs, knowledge, Biome,
+  Knip, build, packed distribution and scoped Opengrep pass. The process-helper
+  check skips locally because Linux `/proc` is unavailable; hosted CI covers it.
+- The offline qualifier uses Docker Compose 5.5.0's actual render/hash commands
+  and synthetic exact-ID inspection. It accepts the equivalent namespace,
+  preserves source bytes, and refuses a changed image. It accesses no daemon
+  and provides no live-provider proof. An initial fixture lacked a Git ignore
+  check; initializing its synthetic repository corrected the fixture.
+- The correction adds approximately 350 substantive lines across the existing
+  guard, its two pinned-endpoint callers and their regression files. It remains
+  in the already-approved draft. Scoped implementation review and final CI are
+  pending on the complete candidate; earlier review covers unchanged paths.
+- Terminal: the same qualified draft with held SHA and producing evidence.
+  A matching hash is configuration evidence, never permission for a runtime
+  effect or proof of consumer recovery.

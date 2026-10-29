@@ -300,6 +300,7 @@ export function recoverManagedStopBaseline(
     assertManagedContainerConfigUnchanged({
       plan,
       containers,
+      endpoint: baseline.endpoint,
       workspace: state.workspace
         ? {
             token: state.workspace,

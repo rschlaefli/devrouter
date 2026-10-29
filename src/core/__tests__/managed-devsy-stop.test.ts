@@ -689,6 +689,7 @@ describe("interrupted initial managed Devsy start", () => {
     const configChecks = vi.mocked(assertManagedContainerConfigUnchanged).mock.calls;
     expect(configChecks.length).toBeGreaterThan(0);
     expect(configChecks.every(([options]) => options.containers.length === 7)).toBe(true);
+    expect(configChecks.every(([options]) => options.endpoint === endpoint)).toBe(true);
   });
 
   it("leaves unmanaged provider stop to its existing caller", () => {

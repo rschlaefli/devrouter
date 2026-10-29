@@ -611,6 +611,13 @@ and daemon, unchanged registration, absence of replaced IDs, immutable identity
 of retained containers, both provider registries, exact service population,
 checkout mount, Compose file provenance,
 current per-service configuration hashes and the primary runner population.
+A service namespace hash may use Compose's resolved `container:<id>` form.
+After an unchanged-model hash mismatch, the guard retries only for a declared
+`service:<name>` whose unique target is already in the exact owned population.
+It verifies both full IDs and the sharing container's namespace on the pinned
+endpoint before and after hashing. Only that model field changes in memory;
+source bytes and every other service field remain part of the original proof.
+Missing, foreign, ambiguous or changing evidence still refuses recovery.
 Two stable observations precede the degraded replacement baseline. The durable
 stop-work boundary and effect fence precede its write; normal pinned stop and
 settlement then apply. Recovery neither starts applications nor removes
