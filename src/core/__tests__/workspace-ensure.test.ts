@@ -1301,6 +1301,14 @@ describe("workspaceEnsure", () => {
 
   it("carries the captured ownership through final readiness under the provider lock", async () => {
     mockDevsyCapture([]);
+    let persisted: ManagedRuntimeState | undefined;
+    vi.mocked(writeManagedRuntimeState).mockImplementation((value) => {
+      persisted = JSON.parse(JSON.stringify(value));
+    });
+    vi.mocked(proveRetainedManagedStop).mockImplementation((value) => {
+      expect(value).toStrictEqual(persisted);
+      return [];
+    });
     await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
     const captured = vi.mocked(writeManagedRuntimeState).mock.calls[0][0];
     expect(captured.status).toBe("degraded");

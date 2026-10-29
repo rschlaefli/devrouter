@@ -1447,6 +1447,9 @@ export async function workspaceEnsure(
             const captureProject = managedComposeProject;
             const captureId = devpodId;
             const capturePrimaryId = container.id;
+            const hostPortDeclarationsSha256 = managedHostPortDeclarationsIdentity(
+              managedRuntime?.devcontainer.hostPorts ?? {},
+            );
             const capture = () => {
               const state: ManagedRuntimeState = {
                 version: 1,
@@ -1456,9 +1459,7 @@ export async function workspaceEnsure(
                 composeProject: captureProject,
                 profile: runtime.profile,
                 variant,
-                hostPortDeclarationsSha256: managedHostPortDeclarationsIdentity(
-                  managedRuntime?.devcontainer.hostPorts ?? {},
-                ),
+                ...(hostPortDeclarationsSha256 !== undefined ? { hostPortDeclarationsSha256 } : {}),
                 desired: {
                   apps: apps.map((app) => app.name).sort(),
                   services: [...capturePlan.desiredProfileServices].sort(),
