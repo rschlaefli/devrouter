@@ -139,6 +139,44 @@ Ownership overflow is persisted and forces cleanup. A provider must discover and
 delete the entire generation independently of the bounded receipt list, then
 prove absence before capacity is released.
 
+## CI image preparation
+
+Container resources may declare `imageTarget: <logical-target>` instead of `image`
+or `build`. The repository owns those logical mappings. An installation with CI
+targets must supply an `images` policy: `platform`, `platformQualified: true`,
+`producer` (`repository`, `workflow`, `controlRevision`), a shell-free `command`,
+reviewed `files` (`file`, `sha256`) and scoped `environment` names. The selected
+Northflank graph must declare the same platform. Qualification records actual
+runtime capability; selecting a platform is insufficient evidence.
+
+The command receives bounded JSON on stdin with `action`, `correlation`,
+`request`, `producer`, `missing` and `pinnedImages`. A request contains the captured
+revision, platform and deduplicated logical targets with complete non-secret
+configuration. `resolve` returns `{receipts, pending?}`; `dispatch` starts only the
+missing logical targets. A receipt binds revision, producer identity, run ID,
+attempt, target, platform, configuration digest, input fingerprint and immutable
+`image`, with `ciPassed` and `admissionPassed` true. The installed adapter must
+verify successful producing CI, required source checks, actual checkout identity,
+registry platforms and applicable digest-bound scan evidence before returning it.
+Receipt parsing alone does not verify a producing run. No credential may appear
+in inputs, receipts or output. Private registry authentication stays in the
+adapter; the provider maps exact image repositories to existing pull-credential
+IDs through `registryCredentials` in the installed graph policy.
+
+The engine persists generation and source before image preparation. It waits at
+most45minutes before provider allocation. Once images are admitted, initial
+native provisioning gets its ordinary20minute setup window and two-hour ready
+lifetime. An existing environment retains its expiry during explicit updates.
+Status separates image preparation from provisioning. An uncertain dispatch is
+observed using its durable correlation; an empty search or expired lease never
+permits another dispatch. Stop/close/expiry fences late results. Pushes and image
+publications do not activate or refresh environments.
+
+For frontend images, include all build-time public configuration in the variant
+identity. A runtime environment variable cannot replace a URL embedded in a
+browser bundle. Existing source-build and pinned-image recipes remain explicit;
+a CI target never falls back to a provider build.
+
 ## Northflank provider source
 
 The internal Northflank adapter compiles explicit installation recipes into staged
@@ -199,7 +237,10 @@ from public build inputs. Declarations allow at most32 sensitive names, 16 outpu
 32 selected secret groups.
 
 Generation values persist in restricted native runtime groups. The ownership journal
-records only delivered names. Refresh adopts matching persisted copies, compares
+records delivered names and successful initialization-job references, without values.
+Completed jobs are explicitly skipped across startup phases and refresh, even if their
+workflow position changes. Jobs configured for updates use revision-specific references.
+Refresh adopts matching persisted copies, compares
 source outputs, and fails closed if delivered values disappear or disagree. Generated
 names are recorded before source startup. Source startup includes only output-source
 dependencies; consumers start after output delivery and recipient readback. One output

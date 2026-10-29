@@ -59,7 +59,7 @@ export type PreviewEffectStep = {
 
 export type PreviewEffect = {
   id: string;
-  kind: "deploy" | "deadline" | "cancel" | "destroy";
+  kind: "images" | "deploy" | "deadline" | "cancel" | "destroy";
   generation: string;
   operationVersion: number;
   deadlineVersion: number;
@@ -83,6 +83,9 @@ export type PreviewPoolEntry = {
   hourlyCents: number;
   operations: Record<string, PreviewEffect>;
   effectSequence: number;
+  imageDeadline?: number;
+  imageStartedAt?: number;
+  imageReadyAt?: number;
   ownershipOverflow?: boolean;
   readyObservedAt?: number;
   completedAt?: number;
@@ -170,10 +173,11 @@ function decodeSession(value: unknown): import("./lifecycle").PreviewSession {
       "ownedResources",
       "reservationHeld",
     ],
-    ["firstReadyAt", "stopReason", "pendingDeadline"],
+    ["firstReadyAt", "stopReason", "pendingDeadline", "provisioningStartedAt"],
   );
   text(row.generation);
   oneOf(row.status, [
+    "waiting-images",
     "provisioning",
     "ready",
     "updating",
@@ -205,9 +209,13 @@ function decodeSession(value: unknown): import("./lifecycle").PreviewSession {
     text(pending.commandId);
   }
   if (row.firstReadyAt !== undefined) integer(row.firstReadyAt);
+  if (row.provisioningStartedAt !== undefined) integer(row.provisioningStartedAt);
+  // Older records started provisioning at creation and have no separate clock field.
+  if (row.provisioningStartedAt === undefined && row.status !== "waiting-images")
+    row.provisioningStartedAt = row.createdAt;
   const session = row as unknown as import("./lifecycle").PreviewSession;
   if (
-    session.setupDeadline !== session.createdAt + 20 * 60_000 ||
+    session.setupDeadline !== (session.provisioningStartedAt ?? session.createdAt) + 20 * 60_000 ||
     session.extensions > 2 ||
     session.expiresAt < session.createdAt
   ) {
@@ -215,7 +223,7 @@ function decodeSession(value: unknown): import("./lifecycle").PreviewSession {
   }
   if (session.firstReadyAt === undefined) {
     if (
-      session.expiresAt !== session.createdAt + 140 * 60_000 ||
+      session.expiresAt !== (session.provisioningStartedAt ?? session.createdAt) + 140 * 60_000 ||
       session.extensions !== 0 ||
       session.pendingDeadline
     )
@@ -308,7 +316,7 @@ function decodePlan(value: unknown): import("./types").PreviewPlanReport {
     const item = object(
       resource,
       ["id", "kind"],
-      ["dependsOn", "image", "build", "ports", "command"],
+      ["dependsOn", "image", "imageTarget", "build", "ports", "command"],
     );
     text(item.id, 63);
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(item.id))
@@ -386,7 +394,15 @@ export function decodePreviewPool(value: unknown): PreviewPool {
     const entry = object(
       value,
       ["session", "plan", "reservedCents", "hourlyCents", "operations", "effectSequence"],
-      ["readyObservedAt", "completedAt", "ownershipOverflow", "identity"],
+      [
+        "readyObservedAt",
+        "completedAt",
+        "ownershipOverflow",
+        "identity",
+        "imageDeadline",
+        "imageStartedAt",
+        "imageReadyAt",
+      ],
     );
     if (entry.identity !== undefined) {
       const identity = object(entry.identity, ["forgeHost", "projectId", "change"]);
@@ -399,6 +415,8 @@ export function decodePreviewPool(value: unknown): PreviewPool {
       )
         throw new Error("Invalid stored forge identity.");
     }
+    for (const key of ["imageDeadline", "imageStartedAt", "imageReadyAt"])
+      if (entry[key] !== undefined) integer(entry[key]);
     const session = decodeSession(entry.session);
     const plan = decodePlan(entry.plan);
     integer(entry.reservedCents);
@@ -445,7 +463,7 @@ export function decodePreviewPool(value: unknown): PreviewPool {
       text(effect.leaseOwner);
       if (effect.id !== operationId || effect.generation !== session.generation)
         throw new Error("Foreign preview effect.");
-      oneOf(effect.kind, ["deploy", "deadline", "cancel", "destroy"]);
+      oneOf(effect.kind, ["images", "deploy", "deadline", "cancel", "destroy"]);
       oneOf(effect.phase, ["prepared", "submitted", "terminal"]);
       integer(effect.operationVersion, 1);
       integer(effect.deadlineVersion, 1);

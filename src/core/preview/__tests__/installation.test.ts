@@ -401,3 +401,43 @@ describe("reviewed preview installation", () => {
     expect(rows.has("installations/test/pool")).toBe(false);
   });
 });
+
+it("requires qualified matching runtime platform and fingerprinted image adapter", () => {
+  const f = fixture();
+  const project = f.policy.projects[0] as (typeof f.policy.projects)[0] & { images?: unknown };
+  const manifestPath = path.join(f.root, "preview.yml");
+  const manifest = fs
+    .readFileSync(manifestPath, "utf8")
+    .replace(/image: example\/app@sha256:[a-f0-9]+/, "imageTarget: web");
+  fs.writeFileSync(manifestPath, manifest);
+  project.manifest.sha256 = createHash("sha256").update(manifest).digest("hex");
+  f.write();
+  expect(() => loadPreviewInstallation(f.filename, { env: {} })).toThrow("image coordination");
+  fs.writeFileSync(path.join(f.root, "resolver.cjs"), "process.exit(1)");
+  project.images = {
+    platform: "linux/amd64",
+    platformQualified: false,
+    producer: {
+      repository: "example/app",
+      workflow: "images.yml",
+      controlRevision: "a".repeat(40),
+    },
+    command: [process.execPath, path.join(f.root, "resolver.cjs")],
+    files: [
+      {
+        file: "resolver.cjs",
+        sha256: createHash("sha256").update("process.exit(1)").digest("hex"),
+      },
+    ],
+    environment: [],
+  };
+  f.write();
+  expect(() => loadPreviewInstallation(f.filename, { env: {} })).toThrow("qualification");
+  (project.northflank.graph as typeof project.northflank.graph & { platform?: string }).platform =
+    "linux/amd64";
+  (project.images as { platformQualified: boolean }).platformQualified = true;
+  f.write();
+  expect(() => loadPreviewInstallation(f.filename, { env: {} })).not.toThrow();
+  fs.appendFileSync(path.join(f.root, "resolver.cjs"), "changed");
+  expect(() => loadPreviewInstallation(f.filename, { env: {} })).toThrow("fingerprint");
+});

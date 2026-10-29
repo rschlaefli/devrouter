@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { isPreviewAlias, PreviewAdmissionRefused, type PreviewCommand } from "./command";
+import type { PreviewImageBackend } from "./images";
 import {
   createPreviewSession,
   MAX_PREVIEW_DEADLINE_EARLINESS_MS,
@@ -127,6 +128,12 @@ function writeFenced(
   effect: PreviewEffect,
   now: number,
 ): boolean {
+  if (effect.kind === "images")
+    return (
+      isStopping(session) ||
+      now >= (effect.target ?? 0) ||
+      session.operationVersion !== effect.operationVersion
+    );
   const cutoff = session.firstReadyAt === undefined ? session.setupDeadline : session.expiresAt;
   return (
     tracked(effect) &&
@@ -184,6 +191,7 @@ export class PreviewEngine {
       store: PreviewStateStore;
       policy: PreviewEnginePolicy;
       provider: PreviewProvider;
+      images?: PreviewImageBackend;
       workerId: string;
       now: () => number;
     },
@@ -319,6 +327,8 @@ export class PreviewEngine {
             JSON.stringify([...input.command.aliases].sort()) !== JSON.stringify(plan.aliases))
         )
           throw new Error("A complete approved source-bound plan is required.");
+        if (plan.resources.some((resource) => resource.imageTarget) && !this.options.images)
+          throw new Error("CI image targets require an installed image backend.");
         this.options.provider.validatePlan?.(plan);
         const hourly = input.hourlyCents;
         if (Buffer.byteLength(JSON.stringify(plan)) > 32 * 1024)
@@ -359,6 +369,7 @@ export class PreviewEngine {
               revision: plan.source.head,
               aliases: plan.aliases,
               commandId: input.commandId,
+              waitForImages: plan.resources.some((resource) => resource.imageTarget),
             }),
             plan,
             hourlyCents: hourly,
@@ -367,6 +378,27 @@ export class PreviewEngine {
             effectSequence: 0,
           };
         }
+      }
+      if (
+        input.command.kind === "start" &&
+        input.plan?.resources.some((resource) => resource.imageTarget)
+      ) {
+        const entry = pool.sessions[id];
+        if (entry.imageDeadline === undefined) entry.imageStartedAt = now;
+        entry.imageReadyAt = undefined;
+        if (entry.session.provisioningStartedAt === undefined)
+          entry.session.status = "waiting-images";
+        entry.imageDeadline ??= Math.min(
+          now + 45 * 60_000,
+          entry.session.firstReadyAt === undefined
+            ? Number.MAX_SAFE_INTEGER
+            : entry.session.expiresAt,
+        );
+      } else if (input.command.kind === "start") {
+        const entry = pool.sessions[id];
+        entry.imageDeadline = undefined;
+        if (entry.session.provisioningStartedAt === undefined)
+          entry.session = transitionPreviewSession(entry.session, { kind: "images-ready", now });
       }
       const active = Object.values(pool.sessions).filter(
         (entry) => entry.session.reservationHeld,
@@ -481,12 +513,26 @@ export class PreviewEngine {
       action = undefined;
       const entry = pool.sessions[id];
       if (!entry?.session.reservationHeld) return pool;
+      if (
+        entry.imageDeadline !== undefined &&
+        now >= entry.imageDeadline &&
+        !isStopping(entry.session)
+      )
+        entry.session = transitionPreviewSession(entry.session, { kind: "stop", now });
       entry.session = transitionPreviewSession(entry.session, { kind: "tick", now });
       const session = entry.session;
-      const pending = Object.values(entry.operations).filter(
-        (effect) => effect.phase !== "terminal",
-      );
+      let pending = Object.values(entry.operations).filter((effect) => effect.phase !== "terminal");
       const stopping = isStopping(session);
+      // CI effects allocate no provider resources. Their late results are fenced locally.
+      for (const effect of pending)
+        if (
+          effect.kind === "images" &&
+          (stopping ||
+            effect.operationVersion !== session.operationVersion ||
+            !entry.plan.resources.some((resource) => resource.imageTarget))
+        )
+          effect.phase = "terminal";
+      pending = pending.filter((effect) => effect.phase !== "terminal");
       if (
         !stopping &&
         session.pendingDeadline &&
@@ -536,6 +582,8 @@ export class PreviewEngine {
           action = this.prepare(entry, "destroy", now);
       } else if (session.pendingDeadline) {
         action = this.prepare(entry, "deadline", now, session.pendingDeadline.target);
+      } else if (entry.plan.resources.some((resource) => resource.imageTarget)) {
+        action = this.prepare(entry, "images", now, entry.imageDeadline);
       } else {
         const terminal = Object.values(entry.operations).filter(
           (effect) => effect.phase === "terminal",
@@ -699,6 +747,49 @@ export class PreviewEngine {
       return pool;
     });
     if (!dispatch) return;
+    if (effect.kind === "images") {
+      const result = await this.options.images?.prepare(entry, this.writeGate(id, effect));
+      if (!result) throw new Error("Preview image backend is unavailable.");
+      await this.update((pool) => {
+        const current = pool.sessions[id];
+        const live = current?.operations[effect.id];
+        if (
+          !live ||
+          live.phase === "terminal" ||
+          current.session.generation !== effect.generation ||
+          live.leaseOwner !== this.options.workerId ||
+          live.leaseExpiresAt <= this.options.now() ||
+          writeFenced(current.session, live, this.options.now())
+        )
+          return pool;
+        if (result.phase === "ready") {
+          const expected = structuredClone(current.plan);
+          for (const resource of expected.resources) {
+            if (!resource.imageTarget) continue;
+            const resolved = result.plan.resources.find((item) => item.id === resource.id);
+            if (!resolved?.image || !/@sha256:[a-f0-9]{64}$/.test(resolved.image))
+              throw new Error("Image backend did not resolve an immutable image.");
+            delete resource.imageTarget;
+            resource.image = resolved.image;
+          }
+          if (JSON.stringify(expected) !== JSON.stringify(result.plan))
+            throw new Error("Image backend changed the admitted preview plan.");
+          this.options.provider.validatePlan?.(result.plan);
+          current.plan = result.plan;
+          current.session = transitionPreviewSession(current.session, {
+            kind: "images-ready",
+            now: this.options.now(),
+          });
+          current.imageReadyAt = this.options.now();
+          current.imageDeadline = undefined;
+          live.phase = "terminal";
+          live.outcome = "succeeded";
+        }
+        live.leaseExpiresAt = 0;
+        return pool;
+      });
+      return;
+    }
     const receipt = await this.options.provider[dispatch](
       effect,
       entry,

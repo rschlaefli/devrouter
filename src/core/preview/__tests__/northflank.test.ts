@@ -1266,6 +1266,16 @@ describe("Northflank generation ownership", () => {
     await expect(
       ownership.update((current) => ({ ...current, delivered: ["g:password", "g:password"] })),
     ).rejects.toThrow();
+    await ownership.update((current) => ({ ...current, completedJobRuns: ["init_seed"] }));
+    for (const completedJobRuns of [
+      [],
+      ["init_seed", "init_seed"],
+      ["init_z", "init_seed"],
+      ["seed"],
+    ])
+      await expect(
+        ownership.update((current) => ({ ...current, completedJobRuns })),
+      ).rejects.toThrow();
     const another = new NorthflankOwnershipStore({
       store,
       installationId: "fixture",
@@ -1291,6 +1301,7 @@ function providerFixture(
     .digest("hex");
   let now = entry.session.setupDeadline - 20 * 60_000;
   let loseSpecReceipt = false;
+  let loseCompletionReceipt = false;
   let stopBeforeDispatch = false;
   const records = new Map<string, { value: unknown; version: number }>([
     ["installations/fixture/pool", { value: createPreviewPool("fixture"), version: 1 }],
@@ -1321,6 +1332,13 @@ function providerFixture(
         loseSpecReceipt = false;
         throw new Error("synthetic lost spec receipt");
       }
+      if (
+        loseCompletionReceipt &&
+        (value as { completedJobRuns?: string[] }).completedJobRuns?.length
+      ) {
+        loseCompletionReceipt = false;
+        throw new Error("synthetic completion persistence unavailable");
+      }
       records.set(key, { value: structuredClone(value), version: (row?.version ?? 0) + 1 });
       if (
         stopBeforeDispatch &&
@@ -1336,6 +1354,9 @@ function providerFixture(
   };
   let blueprint: Record<string, any> | undefined;
   const runs = new Map<string, Record<string, any>>();
+  const completedNativeJobs = new Set<string>();
+  const jobExecutions: Array<{ ref: string; index: number; operation: string }> = [];
+  let jobOutcome: string | undefined = "success";
   const allocations = new Map<string, Record<string, any>>();
   const domains = new Map<string, string>();
   const mutations: string[] = [];
@@ -1589,8 +1610,20 @@ function providerFixture(
               refCount += 1;
             }
           }
-          for (const node of spec.spec.steps)
-            node.response = { status: "success", startTime: 1, endTime: 2 };
+          for (const [index, node] of spec.spec.steps.entries()) {
+            let status = "success" as string | undefined;
+            if (node.kind === "JobRun") {
+              const identity = `${body.name}:${index}:${node.ref}`;
+              if (skipped || node.skipNodeExecution === "true" || completedNativeJobs.has(identity))
+                status = "skipped";
+              else {
+                status = jobOutcome;
+                jobExecutions.push({ ref: node.ref, index, operation });
+                if (status === "success") completedNativeJobs.add(identity);
+              }
+            }
+            node.response = { status, startTime: 1, endTime: 2 };
+          }
           spec.response = { status: "success", startTime: 1, endTime: 2 };
           const row = {
             id,
@@ -1720,6 +1753,13 @@ function providerFixture(
     store,
     records,
     outputCalls,
+    jobExecutions,
+    jobOutcome: (status?: string) => {
+      jobOutcome = status;
+    },
+    loseCompletionReceipt: () => {
+      loseCompletionReceipt = true;
+    },
     secretReads: () => secretReads,
     outputValue: (value: string) => {
       outputValue = value;
@@ -1815,7 +1855,10 @@ function providerFixture(
   };
 }
 
-function credentialProviderFixture(outputs = true) {
+function credentialProviderFixture(
+  outputs = true,
+  configure?: (entry: PreviewPoolEntry, policy: NorthflankGraphPolicy) => void,
+) {
   return providerFixture((entry, policy) => {
     policy.generated = { password: { bytes: 32, encoding: "hex" } };
     policy.resources.seed.environment = { PASSWORD: { generated: "password" } };
@@ -1841,10 +1884,83 @@ function credentialProviderFixture(outputs = true) {
         environment: { PASSWORD: { generated: "password" }, TOKEN: { output: "token" } },
       };
     }
+    configure?.(entry, policy);
   });
 }
 
 describe("Northflank generation credential delivery", () => {
+  it("runs initialization once across shifted phases and refresh, while update jobs follow the revision", async () => {
+    const f = credentialProviderFixture(true, (entry, policy) => {
+      entry.plan.resources.splice(1, 0, {
+        id: "unrelated",
+        kind: "job",
+        image: `example/update@sha256:${"0".repeat(64)}`,
+      });
+      policy.resources.unrelated = { deploymentPlan: "nf-compute-10", runOn: "update" };
+    });
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    const initial = await f.reconcile(12);
+    expect(initial?.session.status).toBe("ready");
+    const source = [...f.runs.values()].find((run) =>
+      run.arguments.devrouterOperation.startsWith("source-"),
+    )!;
+    const active = [...f.runs.values()].find((run) =>
+      run.arguments.devrouterOperation.startsWith("activate-"),
+    )!;
+    const index = (run: Record<string, any>) =>
+      run.spec.spec.steps.findIndex((node: any) => node.ref === "init_seed");
+    expect(index(source)).not.toBe(index(active));
+    expect(active.spec.spec.steps[index(active)].skipNodeExecution).toBe("true");
+    expect(f.jobExecutions.filter((job) => job.ref === "init_seed")).toHaveLength(1);
+    f.refreshSource();
+    await f.command("refresh", { kind: "start", aliases: ["web"] });
+    const refreshed = await f.reconcile(12);
+    expect(refreshed?.session.status).toBe("ready");
+    expect(refreshed?.session.generation).toBe(initial?.session.generation);
+    expect(f.jobExecutions.filter((job) => job.ref === "init_seed")).toHaveLength(1);
+    const updates = f.jobExecutions.filter((job) => job.ref.startsWith("init_unrelated_"));
+    expect(updates).toHaveLength(2);
+    expect(updates[0].ref).not.toBe(updates[1].ref);
+    await f.command("stop", { kind: "stop" });
+    expect((await f.reconcile())?.session.status).toBe("stopped");
+    f.advance(1);
+    await f.command("restart", { kind: "start", aliases: ["web"] });
+    expect((await f.reconcile(12))?.session.status).toBe("ready");
+    expect(f.jobExecutions.filter((job) => job.ref === "init_seed")).toHaveLength(2);
+  });
+
+  it("recovers completion persistence from the original native run without replaying initialization", async () => {
+    const f = credentialProviderFixture();
+    f.loseCompletionReceipt();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    await expect(f.reconcile(12)).rejects.toThrow("completion persistence");
+    expect(f.jobExecutions.filter((job) => job.ref === "init_seed")).toHaveLength(1);
+    f.advance(31_000);
+    expect((await f.reconcile(12))?.session.status).toBe("ready");
+    expect(f.jobExecutions.filter((job) => job.ref === "init_seed")).toHaveLength(1);
+    expect(
+      [...f.runs.values()].filter((run) => run.arguments.devrouterOperation.startsWith("source-")),
+    ).toHaveLength(1);
+  });
+
+  it.each([
+    "failed",
+    "skipped",
+    "unknown",
+    undefined,
+  ])("requires positive job completion evidence: %s", async (status) => {
+    const f = credentialProviderFixture();
+    f.jobOutcome(status);
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    const failed = await f.reconcile(20);
+    expect(failed?.session.status).toBe("stopped");
+    expect(f.allocations.size).toBe(0);
+    expect(f.outputCalls).toHaveLength(0);
+    expect(
+      [...f.runs.values()].some((run) => run.arguments.devrouterOperation.startsWith("activate-")),
+    ).toBe(false);
+  });
+
   it("persists one generation value, reuses it on refresh, and keeps values outside controller state", async () => {
     const f = credentialProviderFixture();
     await f.command("start", { kind: "start", aliases: ["web"] });
@@ -2360,5 +2476,42 @@ describe("Northflank provider lifecycle", () => {
     await f.command("start", { kind: "start", aliases: ["web"] });
     expect((await f.reconcile(20))?.session.reservationHeld).toBe(false);
     expect(f.mutations).toEqual([]);
+  });
+});
+
+describe("CI external image graph", () => {
+  it("emits immutable deployments and scoped pull IDs with no build nodes", () => {
+    const { entry, policy } = graphFixture();
+    policy.platform = "linux/amd64";
+    policy.registryCredentials = { "example/web": "preview-pull" };
+    const graph = compileNorthflankGraph(entry, policy, "prepare");
+    const nodes = graph.spec.spec.steps;
+    expect(nodes.some((node) => ["Build", "BuildService"].includes(node.kind))).toBe(false);
+    const web = nodes.find((node) => node.kind === "DeploymentService");
+    expect(web?.spec.infrastructure).toEqual({ architecture: "x86" });
+    expect((web?.spec.deployment as { external: unknown } | undefined)?.external).toEqual({
+      imagePath: entry.plan.resources[2].image,
+      credentials: "preview-pull",
+    });
+  });
+  it("derives complete public CI configuration without requiring native ownership", () => {
+    const { entry, policy } = graphFixture();
+    delete entry.plan.resources[2].image;
+    entry.plan.resources[2].imageTarget = "web";
+    policy.resources.web.publicBuildEnvironment = {
+      CONFIG: {
+        json: {
+          APP_ORIGIN: { origin: "web", port: "http" },
+          SSR: { service: "web", port: "http", format: "http-url" },
+        },
+      },
+    };
+    const context = compileNorthflankGraph(entry, policy, "context");
+    expect(context.spec.spec.steps).toEqual([]);
+    expect(JSON.parse(context.publicBuildEnvironment.web.CONFIG)).toMatchObject({
+      APP_ORIGIN: expect.stringContaining("preview.example.org"),
+      SSR: expect.stringContaining("http://"),
+    });
+    expect(() => compileNorthflankGraph(entry, policy, "prepare")).toThrow();
   });
 });

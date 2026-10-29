@@ -200,6 +200,15 @@ export function previewStatusBody(
     `Expires: ${new Date(session.expiresAt).toISOString()}. Setup cutoff: ${new Date(session.setupDeadline).toISOString()}.`,
     `Estimated compute: ${(entry.hourlyCents / 100).toFixed(2)} USD/hour; allocation reservation ${(entry.reservedCents / 100).toFixed(2)} USD. Builds, storage and provider cleanup can add charges.`,
   ];
+  if (entry.imageStartedAt !== undefined) {
+    lines.push(
+      `Image preparation: ${entry.imageReadyAt === undefined ? "waiting" : `${Math.max(0, entry.imageReadyAt - entry.imageStartedAt)} ms`}.`,
+    );
+    if (session.provisioningStartedAt !== undefined && session.firstReadyAt !== undefined)
+      lines.push(
+        `Provisioning after images: ${session.firstReadyAt - session.provisioningStartedAt} ms.`,
+      );
+  }
   if (session.status === "ready")
     for (const [name, value] of Object.entries(urls)) {
       const url = new URL(value);

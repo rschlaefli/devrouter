@@ -16,6 +16,7 @@ const MAX_RESOURCE_ID = 128;
 const REVISION_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 export type PreviewSessionStatus =
+  | "waiting-images"
   | "provisioning"
   | "ready"
   | "updating"
@@ -29,6 +30,7 @@ export type PreviewSession = {
   generation: string;
   status: PreviewSessionStatus;
   createdAt: number;
+  provisioningStartedAt?: number;
   setupDeadline: number;
   expiresAt: number;
   firstReadyAt?: number;
@@ -64,6 +66,7 @@ export type PreviewLifecycleEvent =
       aliases: string[];
       startupBudgetMs: number;
     } & Timed)
+  | ({ kind: "images-ready" } & Timed)
   | ({ kind: "push"; revision: string } & Timed)
   | ({ kind: "deadline-rejected"; generation: string; deadlineVersion: number } & Timed)
   | ({ kind: "extend"; commandId: string } & Timed)
@@ -99,12 +102,14 @@ export function createPreviewSession({
   revision,
   aliases,
   commandId,
+  waitForImages = false,
 }: {
   generation: string;
   now: number;
   revision: string;
   aliases: string[];
   commandId: string;
+  waitForImages?: boolean;
 }): PreviewSession {
   assertTime(now);
   assertId(generation, "generation");
@@ -112,8 +117,9 @@ export function createPreviewSession({
   assertRevision(revision);
   return {
     generation,
-    status: "provisioning",
+    status: waitForImages ? "waiting-images" : "provisioning",
     createdAt: now,
+    ...(waitForImages ? {} : { provisioningStartedAt: now }),
     setupDeadline: add(now, SETUP_LIMIT),
     expiresAt: add(now, BACKSTOP),
     extensions: 0,
@@ -180,7 +186,12 @@ export function transitionPreviewSession(
       assertRevision(event.revision);
       assertTime(event.startupBudgetMs);
       const aliases = normalizeAliases(event.aliases);
-      const cutoff = session.firstReadyAt === undefined ? session.setupDeadline : session.expiresAt;
+      const cutoff =
+        session.status === "waiting-images"
+          ? session.expiresAt
+          : session.firstReadyAt === undefined
+            ? session.setupDeadline
+            : session.expiresAt;
       if (!isActive(session.status) || event.now >= cutoff)
         throw new Error("preview cannot accept start");
       const next = clone(session);
@@ -200,9 +211,26 @@ export function transitionPreviewSession(
       next.desiredRevision = event.revision;
       next.desiredAliases = aliases;
       next.operationVersion = increment(session.operationVersion);
-      next.status = session.firstReadyAt === undefined ? "provisioning" : "updating";
+      next.status =
+        session.status === "waiting-images"
+          ? "waiting-images"
+          : session.firstReadyAt === undefined
+            ? "provisioning"
+            : "updating";
       next.stale = false;
       return next;
+    }
+
+    case "images-ready": {
+      if (session.status !== "waiting-images" || session.provisioningStartedAt !== undefined)
+        return clone(session);
+      return {
+        ...clone(session),
+        status: "provisioning",
+        provisioningStartedAt: event.now,
+        setupDeadline: add(event.now, SETUP_LIMIT),
+        expiresAt: add(event.now, BACKSTOP),
+      };
     }
 
     case "push": {
@@ -488,7 +516,12 @@ function add(time: number, duration: number): number {
 }
 
 function isActive(status: PreviewSessionStatus): boolean {
-  return status === "provisioning" || status === "ready" || status === "updating";
+  return (
+    status === "waiting-images" ||
+    status === "provisioning" ||
+    status === "ready" ||
+    status === "updating"
+  );
 }
 
 function isFenced(status: PreviewSessionStatus): boolean {

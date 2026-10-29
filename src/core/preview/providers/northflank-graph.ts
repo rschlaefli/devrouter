@@ -36,6 +36,8 @@ export type NorthflankGraphPolicy = {
   namespace: string;
   baseDomain: string;
   allowedNetworks: string[];
+  platform?: "linux/amd64" | "linux/arm64";
+  registryCredentials?: Record<string, string>;
   git?: {
     url: string;
     type: "github" | "gitlab" | "self-hosted";
@@ -64,6 +66,7 @@ type Node = {
   updateMode?: "create" | "put";
   condition?: "success";
   runNodeOnce?: "true";
+  skipNodeExecution?: "true";
 };
 
 type RefNamespace = "r" | "b" | "e" | "d";
@@ -213,8 +216,11 @@ export function northflankAllocationPrefix(
 export function compileNorthflankGraph(
   entry: PreviewPoolEntry,
   policy: NorthflankGraphPolicy,
-  phase: "prepare" | "source" | "activate",
-  owned: { resources: Record<string, string>; domains: string[] } = { resources: {}, domains: [] },
+  phase: "prepare" | "source" | "activate" | "context",
+  owned: { resources: Record<string, string>; domains: string[]; completedJobRuns?: string[] } = {
+    resources: {},
+    domains: [],
+  },
 ) {
   const source = entry.plan.source;
   if (
@@ -471,17 +477,51 @@ export function compileNorthflankGraph(
       throw new Error("Northflank JSON build binding requires a bounded flat object.");
     const value = JSON.stringify(
       Object.fromEntries(
-        Object.entries(fields).map(([key, item]) => {
-          if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(key))
-            throw new Error("Invalid Northflank JSON build binding key.");
-          return [key, literal(item)];
-        }),
+        Object.entries(fields)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, item]) => {
+            if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(key))
+              throw new Error("Invalid Northflank JSON build binding key.");
+            return [key, literal(item)];
+          }),
       ),
     );
     if (Buffer.byteLength(value) > 16 * 1024)
       throw new Error("Northflank JSON build binding exceeds its size bound.");
     return value;
   };
+  const publicBuildEnvironment = Object.fromEntries(
+    entry.plan.resources.map((resource) => [
+      resource.id,
+      Object.fromEntries(
+        Object.entries(policy.resources[resource.id]?.publicBuildEnvironment ?? {}).map(
+          ([key, binding]) => [key, buildValue(binding)],
+        ),
+      ),
+    ]),
+  );
+  if (phase === "context")
+    return {
+      spec: { kind: "Workflow", spec: { type: "sequential", steps: [] as Node[] } },
+      digest: "",
+      runtimeSecrets: [] as Array<{ groupRef: string; variables: Record<string, string> }>,
+      secretBindings: [] as Array<{
+        groupRef: string;
+        variables: Record<string, SensitiveBinding>;
+      }>,
+      urls: {} as Record<string, string>,
+      sourceResources,
+      publicBuildEnvironment,
+    };
+  if (policy.platform !== undefined && !["linux/amd64", "linux/arm64"].includes(policy.platform))
+    throw new Error("Invalid Northflank runtime platform.");
+  for (const [repository, credential] of Object.entries(policy.registryCredentials ?? {})) {
+    if (
+      !/^[a-z0-9.-]+\/[a-z0-9._/-]+$/.test(repository) ||
+      !/^[A-Za-z0-9-]{1,128}$/.test(credential)
+    )
+      throw new Error("Invalid Northflank registry credential scope.");
+  }
   const prepare: Node[] = [];
   const volumes: Node[] = [];
   const secretNodes: Node[] = [];
@@ -583,12 +623,7 @@ export function compileNorthflankGraph(
           "Northflank source builds require a trusted repository and build allocation.",
         );
       const buildId = resource.id;
-      const buildArguments = Object.fromEntries(
-        Object.entries(settings.publicBuildEnvironment ?? {}).map(([key, binding]) => [
-          key,
-          buildValue(binding),
-        ]),
-      );
+      const buildArguments = publicBuildEnvironment[resource.id];
       prepare.push(
         node(
           "BuildService",
@@ -641,7 +676,13 @@ export function compileNorthflankGraph(
     } else {
       if (!resource.image?.includes("@sha256:"))
         throw new Error("Northflank image recipes require immutable image digests.");
-      deployment.external = { imagePath: resource.image };
+      if (resource.imageTarget)
+        throw new Error("CI image targets must be admitted before Northflank compilation.");
+      const credential = policy.registryCredentials?.[resource.image.split("@sha256:")[0]];
+      deployment.external = {
+        imagePath: resource.image,
+        ...(credential ? { credentials: credential } : {}),
+      };
     }
     if (resource.command)
       deployment.docker = {
@@ -715,6 +756,9 @@ export function compileNorthflankGraph(
     const spec = {
       name,
       billing,
+      ...(policy.platform
+        ? { infrastructure: { architecture: policy.platform === "linux/amd64" ? "x86" : "arm" } }
+        : {}),
       deployment,
       runtimeEnvironment: {},
       ...(resource.kind === "service"
@@ -777,16 +821,22 @@ export function compileNorthflankGraph(
         },
       };
       activations.set(resource.id, [serviceActivation, runningCondition]);
-    } else
+    } else {
+      const jobRef = `init_${resource.id.replaceAll("-", "_")}${settings.runOn === "update" ? `_${source.head.slice(0, 12)}` : ""}`;
       activations.set(resource.id, [
         {
           kind: "JobRun",
-          ref: `init_${resource.id.replaceAll("-", "_")}${settings.runOn === "update" ? `_${source.head.slice(0, 12)}` : ""}`,
+          ref: jobRef,
+          // Native runNodeOnce identity also depends on the node's workflow position.
+          ...(owned.completedJobRuns?.includes(jobRef)
+            ? { skipNodeExecution: "true" as const }
+            : {}),
           condition: "success",
           runNodeOnce: "true",
           spec: { jobId: reference(resource.id) },
         },
       ]);
+    }
     const variables: Record<string, string> = {};
     const runtime: Record<string, string> = {};
     const sensitive: Record<string, SensitiveBinding> = {};
@@ -880,5 +930,13 @@ export function compileNorthflankGraph(
   const digest = createHash("sha256")
     .update(JSON.stringify({ spec, runtimeSecrets }))
     .digest("hex");
-  return { spec, digest, runtimeSecrets, secretBindings, urls, sourceResources };
+  return {
+    spec,
+    digest,
+    runtimeSecrets,
+    secretBindings,
+    urls,
+    sourceResources,
+    publicBuildEnvironment,
+  };
 }
