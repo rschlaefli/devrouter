@@ -137,6 +137,15 @@ the checking stage rather than successful readiness. Exec output is unchanged.
 Controller invocations retain these lines in their existing bounded output buffer.
 Progress delivery never grants lifecycle authority or changes operation results.
 
+Managed status composes the current operation projection with a bounded private
+ensure diagnostic receipt under `~/.config/devrouter/lifecycle-diagnostics/`.
+The receipt is separate from lifecycle authority and journal enumeration. Readers
+compare journal/receipt/journal identity and fences without a mutation lock.
+Raw output remains outside status and the journal; explicit `logs --repo` reads
+at most 32 KiB for the matching latest ensure. Package names are observed task
+labels, not proof that a package is still executing. Output freshness, phase
+freshness, execution deadlines and journal-proven drainage remain distinct.
+
 ## Profile transitions
 
 The native Dev Container view remains full: its source configuration describes
@@ -598,9 +607,21 @@ The primary behavior gates are `src/core/__tests__/workspace-ensure.test.ts`, `w
 `stop --repair` is a separate opt-in to re-prove an externally replaced
 population. It cannot infer ownership from labels alone or accept a changed
 provider identity. The locked lifecycle preflight verifies the pinned endpoint
-and daemon, unchanged registration, absence of the old IDs, both provider
-registries, exact service population, checkout mount, Compose file provenance,
+and daemon, unchanged registration, absence of replaced IDs, immutable identity
+of retained containers, both provider registries, exact service population,
+checkout mount, Compose file provenance,
 current per-service configuration hashes and the primary runner population.
+A service namespace hash may use Compose's resolved `container:<id>` form.
+After an unchanged-model hash mismatch, the guard retries only for a declared
+`service:<name>` whose unique target is already in the exact owned population.
+It verifies both full IDs and the sharing container's namespace on the pinned
+endpoint before and after hashing. Only that model field changes in memory;
+source bytes and every other service field remain part of the original proof.
+Missing, foreign, ambiguous or changing evidence still refuses recovery.
+A primary recreation can leave a retained peer attached to the removed primary's
+namespace. That stale binding is not equivalent to the current primary, even
+when both generations belonged to the same checkout. Stop repair does not
+recreate peers or reinterpret their stale namespace as current ownership.
 Two stable observations precede the degraded replacement baseline. The durable
 stop-work boundary and effect fence precede its write; normal pinned stop and
 settlement then apply. Recovery neither starts applications nor removes

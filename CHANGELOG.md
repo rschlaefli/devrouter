@@ -4,6 +4,27 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-29
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.6.1.md
+
+### Fixed
+
+- Managed startup without declared host ports retains a state representation
+  that matches persistence, preserving strict generation checks through repair.
+- Explicit stop recovery accepts a proven partial replacement while retaining
+  immutable checks for surviving originals and positive absence for replaced IDs.
+  Equivalent Compose service network namespaces require exact owned target IDs,
+  pinned-endpoint inspection and a full configuration rehash.
+- A stalled ensure exposes bounded private diagnostics through managed status
+  and `logs --repo <checkout> --tail <lines>` without waiting for its lifecycle
+  lock. Output freshness does not establish liveness or an execution deadline.
+- Manual ensure preserves inherited stdin and streamed output while bounded
+  diagnostic sinks remain independent of worker results and cancellation proof.
+
+
 ## [0.6.0] - 2026-10-26
 
 ### Agent Adaptation Prompt

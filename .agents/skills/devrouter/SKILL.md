@@ -366,7 +366,7 @@ Run several worktrees of one repo in parallel without host/route collisions. A *
 - `devrouter doctor [--repo .]`: deep diagnostics (global + repo)
 - `devrouter ls`: list active HTTP + TCP routes
 - `devrouter open <name>`: open HTTP route or print TCP connection hint (matches app name, then service/container/host identities)
-- `devrouter logs [-f]`: Traefik access logs
+- `devrouter logs [-f]`: Traefik access logs; `logs --repo <path> [--tail 100]` explicitly reads the matching latest ensure's private bounded output snapshot without queued exec. Snapshot mode has no follow. Managed `status --repo <path> --json` reports operation/stage/elapsed/observed-package/output-age evidence during provisioning; liveness stays unknown and no execution deadline is implied. A phase heartbeat is not build progress or drainage proof.
 - `devrouter tls install`: install mkcert certs, enable HTTPS + TCP/SNI
 - `devrouter repo init`: create `.devrouter.yml`
 - `devrouter repo inspect [--json]`: inspect package, scripts, compose services, env names, devcontainer, devrouter config, and agent guidance for onboarding

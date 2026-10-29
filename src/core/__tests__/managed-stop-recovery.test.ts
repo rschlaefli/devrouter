@@ -764,6 +764,11 @@ describe("explicit replacement population stop recovery", () => {
     expect(() => stopFromManagedBaseline(state)).toThrow();
     expect(readManagedRuntimeState(state.repoPath, state.workspace)).toEqual(previous);
     const candidate = recoverManagedStopBaseline(state, () => plan, vi.fn());
+    expect(
+      vi
+        .mocked(assertManagedContainerConfigUnchanged)
+        .mock.calls.every(([options]) => options.endpoint === endpoint),
+    ).toBe(true);
     expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
     expect(candidate.status).toBe("degraded");
     expect(candidate.stopBaseline?.containers.map((container) => container.id)).toEqual(
@@ -773,6 +778,67 @@ describe("explicit replacement population stop recovery", () => {
     expect(stopFromManagedBaseline(candidate)).toBe("retained");
     expect(docker.stopPinnedManagedContainer).toHaveBeenCalledTimes(2);
     expect(containers.every((container) => !container.state.Running)).toBe(true);
+  });
+
+  it("recovers a replaced primary with unchanged retained dependencies", () => {
+    const previous = replaced();
+    containers[1].id = previous.stopBaseline!.containers[1].id;
+    vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation((_endpoint, ids) => {
+      if (containers.some((container) => ids.includes(container.id)))
+        throw new Error("Container remains present");
+    });
+    const candidate = recoverManagedStopBaseline(state, () => plan, vi.fn());
+    expect(docker.assertManagedStopContainersAbsent).toHaveBeenCalledWith(endpoint, [
+      previous.stopBaseline!.containers[0].id,
+    ]);
+    expect(candidate.stopBaseline?.containers.map((container) => container.id)).toEqual(
+      containers.map((container) => container.id),
+    );
+    expect(stopFromManagedBaseline(candidate)).toBe("retained");
+    expect(containers.every((container) => !container.state.Running)).toBe(true);
+  });
+
+  it.each([
+    "service",
+    "config-files",
+    "mount",
+  ])("refuses changed retained dependency identity: %s", (failure) => {
+    const previous = replaced();
+    containers[1].id = previous.stopBaseline!.containers[1].id;
+    if (failure === "service") {
+      containers[1].labels["com.docker.compose.service"] = "app";
+      containers[0].labels["com.docker.compose.service"] = "db";
+    }
+    if (failure === "config-files")
+      containers[1].labels["com.docker.compose.project.config_files"] += ",/foreign.yml";
+    if (failure === "mount")
+      containers[1].mounts.push({ Type: "volume", Source: "foreign", Destination: "/data" });
+    expect(() => recoverManagedStopBaseline(state, () => plan, vi.fn())).toThrow();
+    expect(readManagedRuntimeState(state.repoPath, state.workspace)).toEqual(previous);
+    expect(fixture.claim).not.toHaveBeenCalled();
+    expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+  });
+
+  it("refuses retained dependency drift between replacement observations", () => {
+    const previous = replaced();
+    containers[1].id = previous.stopBaseline!.containers[1].id;
+    vi.mocked(assertManagedContainerConfigUnchanged).mockImplementationOnce(() => {
+      containers[1].mounts.push({ Type: "volume", Source: "foreign", Destination: "/data" });
+    });
+    expect(() => recoverManagedStopBaseline(state, () => plan, vi.fn())).toThrow();
+    expect(readManagedRuntimeState(state.repoPath, state.workspace)).toEqual(previous);
+    expect(fixture.claim).not.toHaveBeenCalled();
+    expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+  });
+
+  it("does not require absence proof when the exact population is retained", () => {
+    replaced();
+    containers.forEach((container, index) => {
+      container.id = state.stopBaseline!.containers[index].id;
+    });
+    const candidate = recoverManagedStopBaseline(state, () => plan, vi.fn());
+    expect(docker.assertManagedStopContainersAbsent).not.toHaveBeenCalled();
+    expect(candidate.stopBaseline?.containers).toEqual(state.stopBaseline!.containers);
   });
 
   it("preserves the original baseline when the durable work boundary refuses", () => {

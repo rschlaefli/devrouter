@@ -1,3 +1,6 @@
+import type { LifecycleDiagnostics } from "./core/lifecycle-diagnostics";
+import type { LifecycleOperationStatus } from "./core/lifecycle-operation-status";
+
 export type Route = {
   id: string;
   source: "docker" | "host";
@@ -131,6 +134,11 @@ export type ManagedReliabilityStatus = {
   admission: "admitted" | "waiting" | "unknown" | "denied-unadmittable" | "not-applicable";
   chargeHeld: boolean;
   incident: { correctiveActionsTaken: number; actionLimit: number } | null;
+  operation?: LifecycleOperationStatus & {
+    kind: "ensure" | "exec";
+    drained: boolean;
+    diagnostics?: LifecycleDiagnostics;
+  };
   /** Absent once the environment's recorded intent needs no action. */
   attention?: { reason: ManagedReliabilityReason; recovery: string[] };
 };

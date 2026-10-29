@@ -1915,6 +1915,48 @@ describe("reliability lifecycle supervision", () => {
   it.each([
     false,
     true,
+  ])("requires explicit replacement repair after interruption (repair: %s)", async (repair) => {
+    setProcessConnected(true);
+    const { identity, lifecycle, request, store } = await seedStopRequest();
+    const retained = { repoPath: identity.repoPath, stopBaseline: { version: 1 } };
+    const candidate = { ...retained, transitionPhase: "stop-recovery" };
+    let saved = retained;
+    fixture.readManagedRuntimeState.mockImplementation(() => saved);
+    fixture.proveRetainedManagedStop.mockImplementation((value) => {
+      if (value === retained)
+        throw new Error("Retained container population or immutable identity changed.");
+      return [];
+    });
+    fixture.recoverManagedStopBaseline.mockImplementation((_state, _plan, beforePersist) => {
+      beforePersist();
+      saved = candidate;
+      return candidate;
+    });
+    const stop = vi.fn(async () => {
+      lifecycle.proveLifecycleStopped();
+      return "stopped";
+    });
+    request.options.repair = repair;
+    if (repair) {
+      await expect(lifecycle.executeLifecycleWorker(request, stop)).resolves.toBe("stopped");
+      expect(saved).toBe(candidate);
+      expect(store.readReliabilityOperation(identity)?.state.stopProof).toEqual({
+        workloadsStopped: true,
+        routesRemoved: true,
+      });
+    } else {
+      await expect(lifecycle.executeLifecycleWorker(request, stop)).rejects.toThrow(
+        /immutable identity/,
+      );
+      expect(stop).not.toHaveBeenCalled();
+      expect(fixture.recoverManagedStopBaseline).not.toHaveBeenCalled();
+      expect(saved).toBe(retained);
+    }
+  });
+
+  it.each([
+    false,
+    true,
   ])("preserves the recovery boundary after failure (persisted: %s)", async (persisted) => {
     setProcessConnected(true);
     const { identity, lifecycle, request, store } = await seedStopRequest();

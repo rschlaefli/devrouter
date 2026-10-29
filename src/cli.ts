@@ -338,11 +338,12 @@ program
 
 program
   .command("logs")
-  .description("Show Traefik router logs (useful for diagnosing routing issues)")
+  .description("Show Traefik logs or the bounded latest managed ensure output")
+  .option("--repo <path>", "Read private lifecycle output for the exact checkout")
   .option("-f, --follow", "Follow log output")
   .option("--tail <lines>", "Number of lines to show from end of logs", "100")
   .action(
-    withErrorHandling(async (options: { follow?: boolean; tail?: string }) => {
+    withErrorHandling(async (options: { follow?: boolean; tail?: string; repo?: string }) => {
       const { runLogsCommand } = await import("./commands/logs");
       await runLogsCommand(options);
     }),

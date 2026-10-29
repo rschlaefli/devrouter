@@ -349,6 +349,7 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
     assertManagedContainerConfigUnchanged({
       plan,
       containers: population,
+      endpoint,
       workspace: workspaceEnv,
     });
     if (

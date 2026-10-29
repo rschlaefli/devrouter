@@ -18,3 +18,28 @@ an in-memory synthetic environment change produced a different hash. Ownership,
 file membership and complete container-population checks remain mandatory.
 Focused tests cover stdin transport, literal values, rendering failure and drift
 rejection. A matching hash does not prove application readiness.
+
+## Service network namespace hashes
+
+A second mismatch can survive full rendering: Compose can record a service hash
+after resolving `network_mode: service:<name>` to `container:<immutable-id>`.
+Rehashing the unresolved model alone then reports drift for equivalent source.
+Preserve the unresolved hash path when it already matches. A fallback must prove
+the target through the caller's exact owned population and inspect the sharing
+container's actual namespace before changing only that in-memory model field.
+Revalidate the same immutable IDs and namespace after hashing; retain all other
+configuration and lifecycle checks. A missing target or foreign namespace is a
+refusal, not a reason to omit a hash field.
+
+The synthetic regression first reproduces the unchanged-source refusal, then
+covers exact equivalence, target ambiguity, namespace races and non-namespace
+configuration changes in `devcontainer-profile.test.ts`. Source recovery is
+qualified separately from real-provider recovery. See the generic source package
+in [draft #167](https://github.com/rschlaefli/devrouter/pull/167).
+
+A provider recreation may replace the primary while a peer still names the old
+primary's namespace. This is actual runtime drift, and the equivalence fallback
+must refuse it. The disposable live rehearsal verified that refusal separately
+from successful canonical repair after the fixture's exact owned peer was
+restored under the lifecycle and provider locks. That fixture operation is not
+a consumer recovery procedure or automatic peer reconciliation capability.

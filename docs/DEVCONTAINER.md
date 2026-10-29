@@ -133,6 +133,22 @@ bookkeeping cannot prove that earlier work stopped. Corrupt or incompatible
 records fail closed. Operation history is bounded and refuses new dispatch when
 full; it is not silently discarded.
 
+While a managed ensure holds the lifecycle lock, `devrouter status --repo <path>
+--json` reports its operation, last stage, elapsed time and observed build-package
+hint when available. Distinct output age is separate from phase receipts;
+heartbeats and recent output never establish liveness. The execution deadline is
+explicitly absent. The worker handshake limit and cancellation grace describe
+different boundaries and are not build deadlines.
+
+`devrouter logs --repo <path> --tail 100` reads the latest matching ensure's
+private output snapshot without queuing exec or acquiring the lifecycle lock.
+The tail is capped at 32 KiB and can contain application output; ordinary status
+contains only structured metadata. Follow is unavailable for this snapshot.
+Unsafe files, changed operation identity or intent fences make evidence
+unavailable. Cancellation preserves the matching diagnostics and operation
+record; only journal-backed process-group drainage establishes worker cessation.
+Default `devrouter logs` continues to show Traefik logs.
+
 These commands provide manual lifecycle coordination. They do not enroll the
 machine in resource admission, prevent OOM, or enable capacity-managed parking/recovery.
 
@@ -607,6 +623,34 @@ in the ensure result and do not invalidate that infrastructure state.
 When the exact old Compose project is positively proven absent, ordinary ensure
 uses the existing startup recovery path. Unavailable inspection is never absence.
 
+### Retained-data recovery and repository hooks
+
+Use canonical `ensure`, `exec` and non-destructive `stop` for an existing managed
+checkout. Retained degraded recovery uses the recorded configuration and exact
+owned resources; `ensure --repair` explicitly limits replay to that path.
+`stop --repair` instead re-proves an externally replaced population before
+stopping it. It requires complete unchanged configuration and ownership evidence.
+Neither command resets or seeds a database as an intentional Devrouter action.
+
+Repository hooks still own application data semantics. Retained repair skips
+provider bootstrap and `postCreateCommand`, but it reruns the repository adapter
+and starts existing container entrypoints where needed. A provider startup or
+replacement can run `postCreateCommand` again. Those hooks and entrypoints must
+separate verification of an existing database from explicitly authorized new
+initialization. Stable volume IDs and mounts prove attachment, not retained
+records. Verify a synthetic persisted record through the intended lifecycle
+before claiming content retention; qualify each consumer's hook behavior
+separately.
+
+When bootstrap qualification or a lifecycle guard refuses, inspect `status
+--repo <checkout> --json`, `doctor --repo <checkout>` and the matching bounded
+`logs --repo <checkout>` snapshot, then consult that repository's documented
+retained-data recovery procedure. Devrouter does not infer a safe bootstrap
+command from filenames or execute a suggested recovery callback. A consumer's
+verification path, initialization mode and reset/seed callback can have different
+data effects; authorization for one does not cover the others. Do not synthesize
+bootstrap markers or rerun initialization to clear a diagnostic refusal.
+
 ## 5. Bring up routing
 
 For a managed Devsy workspace prepared through a local Unix Docker endpoint
@@ -873,10 +917,12 @@ If a retained stop baseline points to containers replaced outside the current
 lifecycle, ordinary stop refuses the changed population. Use
 `devrouter stop <checkout-path> --repair` for an explicit, non-destructive
 recovery. Recovery requires the unchanged exact provider registration and
-local Docker daemon, positive absence of every old container, no competing
-provider registration, and a complete replacement population matching the
-current selected Compose configuration and provider runner binding. Changing
-or incomplete evidence refuses before adopting a baseline or stopping anything.
+local Docker daemon, positive absence of each replaced container, no competing
+provider registration, and a complete population matching the current selected
+Compose configuration and provider runner binding. Dependencies retained by the
+provider must match their recorded IDs, services, Compose files and mounts.
+Changing or incomplete evidence refuses before adopting a baseline or stopping
+anything.
 The new baseline is marked degraded, not ready, and its work boundary is
 recorded before persistence. Stop then uses the normal pinned-container proof.
 Volumes remain intact. `--repair` cannot be combined with `--delete`; after a
