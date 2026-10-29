@@ -19,3 +19,7 @@ The independent planner approved this design. Run focused recovery/lifecycle/bas
 ## Progress
 
 Reproduced two failures against the original implementation. Partial replacement wrongly requires absence of a dependency that is still present; a fully retained population unnecessarily invokes absence proof. The focused suites pass 214 tests. The full suite passes 3,363 tests with 13 explicit skips; Linux process tests are unavailable on macOS. Documentation policy, knowledge links, formatter, unused-code, types and build pass on Node 24. Runtime qualification, independent implementation review and normal source delivery remain pending. The existing tool primary checkout and other worktrees remain untouched.
+
+## Startup persistence correction
+
+Live recovery accepted the exact partial population, then the dependent startup exposed an existing persistence mismatch after all applications and workers reached readiness. A capture without host port declarations stored an explicit undefined optional key in memory. JSON persistence omitted that key, so the strict generation comparison rejected its own saved state. The existing workspace-ensure test now models JSON round-trip before the generation check and reproduced the failure. Omit that absent optional field at capture; preserve strict comparison and all generation fencing. This adds only src/core/workspace-ensure.ts and its existing test to the repair scope. Use the same independent reviewer for one focused verification of the correction before the next live attempt.
