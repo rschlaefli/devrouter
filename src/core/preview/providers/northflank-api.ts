@@ -77,6 +77,7 @@ export class NorthflankRateLimited extends NorthflankOutcomeUncertain {
   constructor(
     readonly until: number,
     readonly exhausted: boolean,
+    readonly dispatched = false,
   ) {
     super();
     this.name = "NorthflankRateLimited";
@@ -129,14 +130,18 @@ export class NorthflankPreviewAPI {
     return this.cleanup.run(cleanup, action);
   }
 
-  private checkQuota() {
+  checkCapacity() {
+    this.checkQuota(false);
+  }
+
+  private checkQuota(consume = true) {
     const now = this.now();
     if (this.exhaustedUntil > now) throw new NorthflankRateLimited(this.exhaustedUntil, true);
     if (this.quota && this.quota.resetAt <= now) this.quota = undefined;
     if (this.quota) {
       if (this.quota.remaining <= (this.cleanup.getStore() ? 0 : 100))
         throw new NorthflankRateLimited(this.quota.resetAt, this.quota.remaining === 0);
-      this.quota.remaining -= 1;
+      if (consume) this.quota.remaining -= 1;
     }
   }
 
@@ -178,7 +183,7 @@ export class NorthflankPreviewAPI {
         this.exhaustedUntil,
         now + Math.max(1000, retryMs, (reset ?? (retryMs ? 0 : 3600)) * 1000),
       );
-      throw new NorthflankRateLimited(this.exhaustedUntil, true);
+      throw new NorthflankRateLimited(this.exhaustedUntil, true, true);
     }
   }
 

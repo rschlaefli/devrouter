@@ -601,7 +601,11 @@ describe("Northflank request quota", () => {
     });
     const result = api.request(method, ["services"]);
     await expect(result).rejects.toBeInstanceOf(NorthflankOutcomeUncertain);
-    await expect(result).rejects.toMatchObject({ until: now + 60_000, exhausted: true });
+    await expect(result).rejects.toMatchObject({
+      until: now + 60_000,
+      exhausted: true,
+      dispatched: true,
+    });
     await expect(
       api.withCleanup(true, () => api.request("GET", ["services"])),
     ).rejects.toBeInstanceOf(NorthflankRateLimited);
@@ -1452,6 +1456,7 @@ function providerFixture(
   let now = entry.session.setupDeadline - 20 * 60_000;
   let loseSpecReceipt = false;
   let loseCompletionReceipt = false;
+  let quotaDuringCreation = false;
   let stopBeforeDispatch = false;
   const records = new Map<string, { value: unknown; version: number }>([
     ["installations/fixture/pool", { value: createPreviewPool("fixture"), version: 1 }],
@@ -1490,6 +1495,11 @@ function providerFixture(
         throw new Error("synthetic completion persistence unavailable");
       }
       records.set(key, { value: structuredClone(value), version: (row?.version ?? 0) + 1 });
+      if (quotaDuringCreation && (value as any).blueprintId && !(value as any).blueprintObserved) {
+        quotaDuringCreation = false;
+        reportedRemaining = "100";
+        await api.request("GET", ["services"]);
+      }
       if (
         stopBeforeDispatch &&
         entries.some((entry) =>
@@ -1929,6 +1939,9 @@ function providerFixture(
     store,
     records,
     requests,
+    quotaDuringCreation: () => {
+      quotaDuringCreation = true;
+    },
     reportQuota: (remaining?: string) => {
       reportedRemaining = remaining;
     },
@@ -2092,6 +2105,60 @@ function credentialProviderFixture(
 }
 
 describe("Northflank generation credential delivery", () => {
+  it("retains proof that creation was not sent when capacity changes during its ownership claim", async () => {
+    const f = credentialProviderFixture();
+    f.quotaDuringCreation();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    const waiting = (await f.reconcile(5))!;
+    expect(f.mutations).toEqual([]);
+    const owned = [...f.records.values()].find(
+      (row) => (row.value as any)?.generation === waiting.session.generation,
+    )!.value as any;
+    expect(owned.blueprintRejected).toBe(true);
+    await f.command("stop", { kind: "stop" });
+    const stopped = (await f.reconcile(20))!;
+    expect(stopped.session.status).toBe("stopped");
+    expect(stopped.session.reservationHeld).toBe(false);
+    expect(await f.provider.absent(stopped)).toBe(true);
+    expect(f.mutations).toEqual([]);
+  });
+
+  it("defers low initial quota before creation and can stop without a phantom blueprint", async () => {
+    const f = credentialProviderFixture();
+    f.reportQuota("100");
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    const waiting = (await f.reconcile(5))!;
+    expect(f.mutations).toEqual([]);
+    const owned = [...f.records.values()].find(
+      (row) => (row.value as any)?.generation === waiting.session.generation,
+    )!.value as any;
+    expect(owned.blueprintId).toBeUndefined();
+    expect(owned.apiWait.exhausted).toBe(false);
+    await f.command("stop", { kind: "stop" });
+    const stopped = (await f.reconcile(20))!;
+    expect(stopped.session.status).toBe("stopped");
+    expect(stopped.session.reservationHeld).toBe(false);
+    expect(await f.provider.absent(stopped)).toBe(true);
+    expect(f.mutations).toEqual([]);
+  });
+
+  it("rejects a different nonempty runtime credential after activation without repatching it", async () => {
+    const f = credentialProviderFixture();
+    f.holdActivation();
+    await f.command("start", { kind: "start", aliases: ["web"] });
+    await f.reconcile(12);
+    const writes = f.mutations.filter((path) => path.startsWith("PATCH secrets/"));
+    const recipient = [...f.allocations.values()].find(
+      (row) => row.kind === "secrets" && row.secrets.variables.API_KEY,
+    )!;
+    expect(recipient).toBeDefined();
+    recipient.secrets.variables.API_KEY = "different-synthetic-credential";
+    f.finishRuns();
+    expect((await f.reconcile(20))?.session.status).toBe("stopped");
+    expect(f.mutations.filter((path) => path.startsWith("PATCH secrets/"))).toEqual(writes);
+    expect(f.allocations.size).toBe(0);
+  });
+
   it("uses reserved capacity to stop and defers again if cleanup is rate limited", async () => {
     const f = credentialProviderFixture();
     f.holdActivation();

@@ -374,8 +374,19 @@ export class NorthflankPreviewProvider implements PreviewProvider {
         owned?.apiWait &&
         owned.apiWait.until > this.options.now() &&
         (!cleanup || owned.apiWait.exhausted)
-      )
+      ) {
+        const cutoff =
+          entry.session.firstReadyAt === undefined
+            ? entry.session.setupDeadline
+            : entry.session.expiresAt;
+        if (
+          !cleanup &&
+          (["stopping", "cleanup-pending"].includes(entry.session.status) ||
+            this.options.now() >= cutoff)
+        )
+          return this.settleFenced(effect, entry, gate, owned, store);
         return this.receipt(owned);
+      }
       try {
         return await this.observeNow(effect, entry, gate);
       } catch (error) {
@@ -452,6 +463,8 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       return this.teardown(effect, entry, gate, owned, store);
     if (await gate.fenced()) return this.settleFenced(effect, entry, gate, owned, store);
     try {
+      if (owned.blueprintRejected)
+        throw new NorthflankFailure("Northflank generation creation was refused.");
       if (!owned.blueprintId) {
         const name = this.name(entry);
         const previous = (await gate.read()).find((step) => step.name === "blueprint");
@@ -460,6 +473,8 @@ export class NorthflankPreviewProvider implements PreviewProvider {
           if (matches.length)
             throw new NorthflankFailure("Northflank generation name is already occupied.");
         }
+        // Check local capacity before claiming a once-only creation intent.
+        this.options.api.checkCapacity();
         const body = {
           name,
           apiVersion: "v1.2",
@@ -473,6 +488,11 @@ export class NorthflankPreviewProvider implements PreviewProvider {
             await this.options.api.request("POST", ["preview-blueprints"], body);
             await gate.record("blueprint", "accepted");
           } catch (error) {
+            if (error instanceof NorthflankRateLimited && !error.dispatched) {
+              // Capacity may change during the ownership CAS; this POST never left the client.
+              owned = await store.update((current) => ({ ...current, blueprintRejected: true }));
+              throw error;
+            }
             if (error instanceof NorthflankRejected) {
               owned = await store.update((current) => ({ ...current, blueprintRejected: true }));
               throw new NorthflankFailure("Northflank rejected generation creation.");
@@ -996,6 +1016,7 @@ export class NorthflankPreviewProvider implements PreviewProvider {
     graph: ReturnType<typeof compileNorthflankGraph>,
   ) {
     const peers = await this.secretPeers(owned);
+    const runtime = new Map<string, string>();
     for (const group of graph.secretBindings) {
       const peer = peers.find((peer) => peer.resource.reference === group.groupRef);
       if (!peer) throw new NorthflankFailure("Northflank selected recipient is missing.");
@@ -1004,12 +1025,23 @@ export class NorthflankPreviewProvider implements PreviewProvider {
       if (Object.entries(plain).some(([key, value]) => peer.variables[key] !== value))
         throw new NorthflankFailure("Northflank configured variables were lost.");
       for (const [key, binding] of Object.entries(group.variables)) {
+        if ("runtimeSecret" in binding && !runtime.has(binding.runtimeSecret)) {
+          let expected: string;
+          try {
+            expected = await this.options.runtimeSecret(binding.runtimeSecret);
+          } catch {
+            throw new NorthflankFailure("Northflank runtime secret is unavailable.");
+          }
+          if (!expected || Buffer.byteLength(expected) > 64 * 1024)
+            throw new NorthflankFailure("Northflank runtime value is unavailable or oversized.");
+          runtime.set(binding.runtimeSecret, expected);
+        }
         const value =
           "generated" in binding
             ? this.peerValue(peers, "generated", binding.generated, owned)
             : "output" in binding
               ? this.peerValue(peers, "output", binding.output, owned)
-              : undefined;
+              : runtime.get(binding.runtimeSecret);
         if (!peer.variables[key] || (value !== undefined && peer.variables[key] !== value))
           throw new NorthflankFailure("Northflank delivered variables were lost.");
       }
