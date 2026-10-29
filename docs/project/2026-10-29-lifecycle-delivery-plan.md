@@ -336,3 +336,25 @@ provider locks, without volume deletion, before rerunning canonical repair.
 That controlled fixture action is not an automatic consumer recovery path.
 The existing roadmap keeps ownership-proven peer reconciliation open. This
 finding changes the qualification limit, not the guard or release source.
+
+
+### Consumer retention and recovery-guidance disposition
+
+The additional consumer-owner request extends synthetic retention proof to an
+actual PostgreSQL record and observes post-create execution separately. The
+existing primitive remains repository-owned bootstrap and adapter semantics;
+Devrouter proves resource identity and its own lifecycle behavior. The owning
+manual now distinguishes retained repair, startup/replacement hook execution,
+volume attachment and content retention. Consumer verification/init/reset paths
+remain with that owner, and are never inferred or run by generic diagnostics.
+
+Status and doctor already expose lifecycle attention and supported commands,
+but there is no explicit repository recovery-document contract for bootstrap
+qualification. A new reference field and reason/output policy would be a public
+interface decision. The roadmap records a concrete proposal: an optional bounded
+repository-relative documentation reference rendered as a link without command
+execution, path inference, bootstrap-marker creation or initialization authority.
+This release adds guidance only; that behavior needs a separately reviewed
+interface decision. Consumer handoff includes version/artifact proof, command
+sequence, refusals and qualified limits. Workflow observer/routing improvements
+remain with their existing owners.

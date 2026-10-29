@@ -623,6 +623,34 @@ in the ensure result and do not invalidate that infrastructure state.
 When the exact old Compose project is positively proven absent, ordinary ensure
 uses the existing startup recovery path. Unavailable inspection is never absence.
 
+### Retained-data recovery and repository hooks
+
+Use canonical `ensure`, `exec` and non-destructive `stop` for an existing managed
+checkout. Retained degraded recovery uses the recorded configuration and exact
+owned resources; `ensure --repair` explicitly limits replay to that path.
+`stop --repair` instead re-proves an externally replaced population before
+stopping it. It requires complete unchanged configuration and ownership evidence.
+Neither command resets or seeds a database as an intentional Devrouter action.
+
+Repository hooks still own application data semantics. Retained repair skips
+provider bootstrap and `postCreateCommand`, but it reruns the repository adapter
+and starts existing container entrypoints where needed. A provider startup or
+replacement can run `postCreateCommand` again. Those hooks and entrypoints must
+separate verification of an existing database from explicitly authorized new
+initialization. Stable volume IDs and mounts prove attachment, not retained
+records. Verify a synthetic persisted record through the intended lifecycle
+before claiming content retention; qualify each consumer's hook behavior
+separately.
+
+When bootstrap qualification or a lifecycle guard refuses, inspect `status
+--repo <checkout> --json`, `doctor --repo <checkout>` and the matching bounded
+`logs --repo <checkout>` snapshot, then consult that repository's documented
+retained-data recovery procedure. Devrouter does not infer a safe bootstrap
+command from filenames or execute a suggested recovery callback. A consumer's
+verification path, initialization mode and reset/seed callback can have different
+data effects; authorization for one does not cover the others. Do not synthesize
+bootstrap markers or rerun initialization to clear a diagnostic refusal.
+
 ## 5. Bring up routing
 
 For a managed Devsy workspace prepared through a local Unix Docker endpoint
