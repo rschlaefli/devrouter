@@ -230,7 +230,7 @@ tests and synthetic provider proof never establish recovery of a real consumer.
   Docs policy, knowledge, Biome, Knip, typecheck, build, packed distribution,
   scoped Opengrep and the installed synthetic lifecycle qualifier pass.
   Independent integrated review and final CI remain pending before handoff.
-- The private read-only pilot comparison identifies replaced identities and a
-  current Compose hash mismatch. No repair command was attempted against that
-  runtime. The owner must resolve current configuration provenance before a
-  separately authorized attempt; component or synthetic checks cannot grant it.
+- Consumer impact was checked privately; its observations remain outside shared
+  artifacts. An owner must prove current configuration provenance and ownership
+  before a separately authorized recovery attempt. Component or synthetic checks
+  cannot grant that authority or establish consumer recovery.
