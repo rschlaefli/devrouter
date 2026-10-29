@@ -290,3 +290,36 @@ Correction progress:
 - Terminal: the same qualified draft with held SHA and producing evidence.
   A matching hash is configuration evidence, never permission for a runtime
   effect or proof of consumer recovery.
+
+
+## Approved live acceptance and patch delivery
+
+The user approved the recommended conditional sequence on 2026-10-29: run a
+real-Docker acceptance on disposable environments; if it passes, mark
+[PR #167](https://github.com/rschlaefli/devrouter/pull/167) ready, merge to main,
+publish the next patch and install it globally with artifact verification.
+Consumer recovery stays with its existing owner. This batch supersedes the
+source-only restriction for these named delivery effects only; consumer data,
+other workspaces, tooling configuration and destructive cleanup remain excluded.
+
+Prepare 0.6.1 release metadata before qualification so the producing package is
+the intended release candidate. Reuse the reviewed executable source at
+`1327256a`; release metadata has no new product contract. Create fresh synthetic
+fixtures in a new task-owned temporary directory with unique route/provider
+identities and bounded memory. Retain a named-volume marker and a functioning
+neighbour. Exercise a canonical ensure held in an adapter build, read diagnostics
+while its lock is held, cancel and prove drainage. Exercise an ownership-locked
+provider recreation interrupted during post-create, without volume deletion;
+ordinary stop must refuse replacement while explicit stop repair proves the
+exact namespace and complete population. Resume, verify actual work and retained
+data, then canonically stop both fixtures and prove provider stopped plus zero
+exact routes. All test source, markers and receipts are synthetic and private.
+
+A failed acceptance blocks merge/publication/installation while in-scope diagnosis
+and source correction continue. Never bypass an ownership refusal. Passing source
+checks, exact-head CI and reusable independent reviews remain required. Preserve
+fixture data and source checkouts; deletion is outside this batch. Release through
+the repository's release-triggered workflow, verify its exact merged tree and npm
+integrity, then install through the existing global manager and compare CLI,
+worker and helper bytes. Terminal evidence belongs in the draft and ignored
+records, with no receipt-only tracked commit after checks finish.
