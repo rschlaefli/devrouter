@@ -206,3 +206,32 @@ latency, and detect unexplained repeated invalidation during ordinary use. A
 passing synthetic epoch change cannot establish immediate wake fencing. The
 test and cleanup remain necessary before closing RF09 / Q20. This failed attempt does
 not authorize another merge, release, installation or consumer mutation.
+
+### Read-only signal experiment (2026-10-29)
+
+A finite native probe sampled the root-domain UUID and capabilities before
+reading the kernel sleep/wake counters. Read intervals and executable hashes
+remain in private receipts. The original capture expired before a matching
+sleep; it is inconclusive. The retry validated capture bounds so a later sleep
+cannot be paired with earlier samples.
+
+The retry captured a complete sleep/full-wake interval with intervening dark
+wakes. It followed a different path from the failed short-suspend product test:
+the kernel wake counter advanced. UUID publication was observed before sleep,
+and the last published UUID remained equal through full wake. A hypothetical
+binding acquired after publication would therefore receive no UUID change at
+wake; replacing the kernel counter with the UUID alone does not close this
+case. Capabilities still described dark wake at the first sample after the
+power log's full-wake timestamp, then changed in a later sample.
+
+This experiment observed host signals only. It exercised no product session,
+readiness publication, capacity admission or consumer environment. Periodic
+samples and the power log's timestamp precision cannot prove that the earliest
+possible resumed caller is fenced. UUID clearing/recovery was not observed and
+remains inconclusive. The probe stopped automatically; its exact process was
+verified absent, with no application runtime started or retained.
+
+The existing short-suspend failure remains open. Reuse the prior independent
+signal critique: a production correction needs transition exclusion as well as
+ordinary recovery, including a binding acquired after pre-sleep publication.
+No replacement source change or further sleep test is armed by this record.
