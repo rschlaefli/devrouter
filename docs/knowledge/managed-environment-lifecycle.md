@@ -598,8 +598,9 @@ The primary behavior gates are `src/core/__tests__/workspace-ensure.test.ts`, `w
 `stop --repair` is a separate opt-in to re-prove an externally replaced
 population. It cannot infer ownership from labels alone or accept a changed
 provider identity. The locked lifecycle preflight verifies the pinned endpoint
-and daemon, unchanged registration, absence of the old IDs, both provider
-registries, exact service population, checkout mount, Compose file provenance,
+and daemon, unchanged registration, absence of replaced IDs, immutable identity
+of retained containers, both provider registries, exact service population,
+checkout mount, Compose file provenance,
 current per-service configuration hashes and the primary runner population.
 Two stable observations precede the degraded replacement baseline. The durable
 stop-work boundary and effect fence precede its write; normal pinned stop and

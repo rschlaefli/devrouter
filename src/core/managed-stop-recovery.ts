@@ -260,11 +260,22 @@ export function recoverManagedStopBaseline(
     );
     if (currentOwner.status !== "owned") throw new Error("Stop recovery owner is unavailable.");
     proveLocalDockerSelection(currentOwner.workspace);
-    assertManagedStopContainersAbsent(
-      baseline.endpoint,
-      baseline.containers.map((container) => container.id),
-    );
     const containers = inspectManagedStopContainers(baseline.project, baseline.endpoint);
+    const missingIds: string[] = [];
+    for (const recorded of baseline.containers) {
+      const retained = containers.find((container) => container.id === recorded.id);
+      if (!retained) {
+        missingIds.push(recorded.id);
+      } else if (
+        !isDeepStrictEqual(
+          { ...recorded, mounts: orderedMounts(recorded.mounts) },
+          identity(retained),
+        )
+      ) {
+        throw new Error("Stop recovery retained container identity changed.");
+      }
+    }
+    if (missingIds.length > 0) assertManagedStopContainersAbsent(baseline.endpoint, missingIds);
     if (
       !isDeepStrictEqual(
         containers.map((container) => container.labels["com.docker.compose.service"]).sort(),
