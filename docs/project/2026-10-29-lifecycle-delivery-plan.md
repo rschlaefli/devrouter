@@ -440,3 +440,12 @@ are pending; draft status and held provider qualification remain explicit.
 Source/test/script delta for this correction is 146lines; no new production
 module or dependency. The new incident solution is included for the proven
 preparation boundary. No additional simplification structure is justified.
+
+
+Independent final review verified one remaining early frontier: missing linked
+identity bypassed the status-only preflight and could reach preparation. The
+correction refuses that case before preparation with the original generic error;
+it never becomes a typed known completion. The existing ownership-negative case
+now supplies a preparation command and asserts it never ran. All other ownership,
+late revalidation and unknown completion behavior is retained. Same-reviewer
+correction and exact-head CI cover the final candidate; no new product ruling.

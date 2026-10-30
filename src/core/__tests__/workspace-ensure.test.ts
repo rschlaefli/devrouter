@@ -2099,6 +2099,8 @@ describe("workspaceEnsure", () => {
     const { state, runningServices } = mockRepair();
     if (reason === "ready") {
       vi.mocked(readManagedRuntimeState).mockReturnValue({ ...state, status: "ready" });
+    }
+    if (reason === "ready" || reason === "ownership") {
       const config = managedRuntimeConfig();
       config.managedRuntime!.devcontainer.prepareCommand = ["generator"];
       vi.mocked(loadRepoConfig).mockReturnValue(config);
@@ -2143,7 +2145,8 @@ describe("workspaceEnsure", () => {
     expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
     expect(writeManagedRuntimeState).not.toHaveBeenCalled();
     expect(devpodUpCalls()).toHaveLength(0);
-    if (reason === "ready") expect(runManagedHostPreparation).not.toHaveBeenCalled();
+    if (reason === "ready" || reason === "ownership")
+      expect(runManagedHostPreparation).not.toHaveBeenCalled();
   });
 
   it.each([

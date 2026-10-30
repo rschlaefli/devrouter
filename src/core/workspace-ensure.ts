@@ -2183,16 +2183,15 @@ export async function workspaceEnsure(
     const preparationConfig = loadRepoConfig(repoPath);
     if (options.repair) {
       const workspace = linked ? readPersistedWorkspace(repoPath) : undefined;
-      if (!linked || workspace) {
-        const retained = readManagedRuntimeState(repoPath, workspace);
-        if (retained?.status !== "degraded") {
-          const checkout = `'${repoPath.replaceAll("'", "'\\''")}'`;
-          throw new WorkspaceEnsureRefusalError(
-            "Repair requires a persisted degraded managed runtime. " +
-              `Inspect this checkout with: devrouter doctor --repo ${checkout} --json. ` +
-              "Ordinary ensure may run repository startup hooks; verify their preservation contract before startup.",
-          );
-        }
+      if (linked && !workspace) throw new Error("Repair requires an existing workspace identity.");
+      const retained = readManagedRuntimeState(repoPath, workspace);
+      if (retained?.status !== "degraded") {
+        const checkout = `'${repoPath.replaceAll("'", "'\\''")}'`;
+        throw new WorkspaceEnsureRefusalError(
+          "Repair requires a persisted degraded managed runtime. " +
+            `Inspect this checkout with: devrouter doctor --repo ${checkout} --json. ` +
+            "Ordinary ensure may run repository startup hooks; verify their preservation contract before startup.",
+        );
       }
     }
     if (!options.repair)
