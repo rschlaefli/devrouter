@@ -4956,3 +4956,14 @@ Passing post-wake assertions do not repair the missing pre-suspend evidence.
 Q20 remains live-open. A corrected verifier and a fresh run with a healthy
 pre-suspend session and unchanged executable are required. Q26 remains a
 separate disposition decision.
+
+
+## Shared tooling follow-ups — 2026-10-30
+
+Open: the user requested role/default resolution, launch/transport/review outcome
+classification, scoped context/diagnostics, worktree-aware task binding and
+fixture input preflight. Their owners, evidence distinctions and acceptance
+checks are recorded once in the active [managed initialization plan](./2026-10-29-managed-fresh-bootstrap-plan.md#shared-routing-and-orchestration-follow-ups--2026-10-30).
+These are primarily shared routing/orchestration gaps. Existing Devrouter lint,
+type, test and package CI checks remain in place. Recording these priorities does
+not authorize shared setup/configuration changes or imply consumer recovery.

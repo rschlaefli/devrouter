@@ -223,3 +223,62 @@ untested versions still refuse. No knowledge concept changes: this expands
 one explicitly qualified version without changing lifecycle, context, storage
 or ownership invariants. Real product failure/cancel/unknown, linked storage,
 final native/review/CI and publication evidence remain pending.
+
+
+## Shared routing and orchestration follow-ups — 2026-10-30
+
+Status: recorded for separate shared-tooling delivery. The human requested these
+retro priorities be added to the plan. This records work and acceptance criteria;
+it does not authorize shared configuration changes or fold them into the Devsy
+compatibility release. Existing Devrouter lint, type, test and package CI checks
+remain the baseline. Main coordinates handoff; the shared routing, hook and
+qualification-tool owners implement their respective fixes.
+
+1. **Role and default resolution.** Owner: shared model-routing/dispatch tooling.
+   A named reviewer must retain its configured model when global defaults differ.
+   Exercise disagreement among global defaults, role settings and the active
+   tool's accepted models. Assert requested and resolved role/model/effort,
+   explicit fallback provenance, and a useful source-capable review. Unsupported
+   models must produce a specific launch failure rather than silently select the
+   global default. The current native default dispatch rejected an unavailable
+   Combo model; an explicit supported native fallback worked. That observation
+   does not establish the underlying resolution cause.
+2. **Separate launch, transport and review outcomes.** Owner: shared orchestration
+   result classification. Preserve evidence for each boundary: process launched,
+   transport delivered a model response, source tools ran, and review met its
+   contract. The supplied retro reports 40 successful GLM simplifier source-tool
+   operations, then two unusable blocked reviewer results with no source reads.
+   Those reviewer results do not prove a general proxy outage. A WebSocket 426
+   warning followed by a response does not prove terminal transport failure.
+   Regression cases must retain successful source operations and response
+   delivery while classifying empty-source reviews as incomplete. Verify the
+   producing counters rather than inferring success from an output schema.
+3. **Context and diagnostic overhead.** Owner: shared workflow invocation and
+   diagnostic callers. Apply the existing scoped-read and output-budget rules;
+   avoid adding another global instruction layer. Pass bounded path/field scopes,
+   project large tool results before displaying them, and read only the relevant
+   skill sections. Acceptance is a representative run with complete necessary
+   evidence, compact summaries, explicit omissions and no repeated truncation or
+   redundant full-skill loads. Preserve actionable errors and exact identities.
+4. **Worktree-aware task binding.** Owner: shared task-alignment hook/runtime.
+   Accept the approved plan beneath a verified task worktree's single artifact
+   root while retaining the primary repository/session identity and real human
+   authority locator. Cover primary and linked checkouts, matching Git common
+   directory, canonical paths, and missing/stale/foreign plans or worktrees.
+   Reject path escape and unrelated checkouts. Do not copy a plan into the clean
+   control checkout or loosen binding merely to satisfy the current validator.
+   The current command cannot bind the approved nested task-worktree plan.
+5. **Qualification fixture preflight.** Owner: fixture harnesses, with shared
+   orchestration validation for required inputs. Before dispatch, validate the
+   exact new checkout/destination, source-path-resolved provider identifier when
+   one is required, and unique database aliases. Before data effects, qualify
+   the complete target database identities; a generic shared-network service
+   hostname is insufficient. Negative cases for ambiguous aliases and undefined
+   identifiers must refuse before provider mutation or SQL effects. Preserve
+   known failure versus unknown completion, partial data and final ownership
+   proof. Include queue-aware deadlines: this run's first cancellation harness
+   expired before provider creation, so it is not post-initialization acceptance.
+
+Completion for these follow-ups requires producing shared-tooling evidence and
+separately reviewed source changes under their owner's authority. A Devrouter
+release, a fallback reviewer or a passing existing CI suite does not close them.
