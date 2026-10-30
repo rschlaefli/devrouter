@@ -143,8 +143,8 @@ describe("durable app replacement authority", () => {
         "dispatched",
       ),
     ).toThrow();
-    advanceAppReplacementAttempt(identity, input, "failed");
-    expect(() => advanceAppReplacementAttempt(identity, input, "dispatched")).toThrow();
+    advanceAppReplacementAttempt(identity, input, "dispatched");
+    expect(() => advanceAppReplacementAttempt(identity, input, "claimed")).toThrow();
   });
 
   it("retains a no-replay claim when its journal acknowledgment fails", () => {

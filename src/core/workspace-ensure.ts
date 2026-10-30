@@ -1844,10 +1844,7 @@ export async function workspaceEnsure(
         claimLifecycleEffect();
         writeManagedRuntimeState(candidateState);
       }
-      if (replacementClaimed)
-        advanceActiveAppReplacement(
-          applicationReadiness?.status === "application-error" ? "failed" : "ready",
-        );
+      if (replacementClaimed) advanceActiveAppReplacement("ready");
       return {
         kind: target.kind,
         repoPath,
@@ -1863,13 +1860,6 @@ export async function workspaceEnsure(
       };
     } catch (error) {
       if (options.replaceApp) {
-        if (replacementClaimed) {
-          try {
-            advanceActiveAppReplacement("failed");
-          } catch {
-            /* Retain uncertain authority without replay. */
-          }
-        }
         if (candidateRoutesPublished) {
           claimLifecycleEffect();
           replaceHostRoutesForRepo(repoPath, []);
@@ -2283,7 +2273,7 @@ export async function workspaceEnsure(
         workspace: workspace ?? null,
         provider: resolveWorkspaceRuntimeOrDefault(repoPath),
       });
-      if (attempt && attempt.stage !== "ready") {
+      if (attempt?.stage === "dispatched") {
         const retained = readManagedRuntimeState(repoPath, workspace);
         if (!retained) throw new Error("Replacement recovery requires its retained stop baseline.");
         await withDevsyMutationLock("Prove replacement recovery", repoPath, async () =>

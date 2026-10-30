@@ -135,7 +135,7 @@ export type AppReplacementAttempt = {
   stoppedFence: ReliabilityFence;
   oldPrimaryId: string;
   preflightSha256: string;
-  stage: "claimed" | "dispatched" | "replaced" | "ready" | "failed";
+  stage: "claimed" | "dispatched" | "replaced" | "ready";
   newPrimaryId?: string;
 };
 
@@ -207,7 +207,7 @@ function validateAppReplacementAttempt(
     !isReliabilityId(attempt.workerId) ||
     !/^[a-f0-9]{64}$/.test(attempt.oldPrimaryId) ||
     !/^[a-f0-9]{64}$/.test(attempt.preflightSha256) ||
-    !["claimed", "dispatched", "replaced", "ready", "failed"].includes(attempt.stage) ||
+    !["claimed", "dispatched", "replaced", "ready"].includes(attempt.stage) ||
     attempt.fence.environmentId !== attempt.stoppedFence.environmentId ||
     attempt.fence.runtimeGeneration !== attempt.stoppedFence.runtimeGeneration ||
     attempt.fence.controllerEpoch !== attempt.stoppedFence.controllerEpoch ||
@@ -278,11 +278,10 @@ export function advanceAppReplacementAttempt(
     assertAppReplacementAuthority(record, authority);
     const attempt = readAppReplacementAttempt(identity);
     const next: Record<AppReplacementAttempt["stage"], string[]> = {
-      claimed: ["dispatched", "failed"],
-      dispatched: ["replaced", "failed"],
-      replaced: ["ready", "failed"],
+      claimed: ["dispatched"],
+      dispatched: ["replaced"],
+      replaced: ["ready"],
       ready: [],
-      failed: [],
     };
     if (
       !attempt ||

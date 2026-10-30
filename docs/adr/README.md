@@ -18,3 +18,4 @@ bundle; this index only lists the accepted decisions.
 - [ADR 0012: Devrouter owns idle stop for managed environments](./0012-devrouter-owns-idle-stop.md)
 - [ADR 0013: Keep runtime variants independent of profile resource selection](./0013-runtime-variants-independent-of-profiles.md)
 - [ADR 0014: Remote previews are an opt-in Devrouter capability](./0014-opt-in-remote-previews.md)
+- [ADR 0015: Require explicit stopped-generation authority for app replacement](./0015-explicit-stopped-app-replacement.md)

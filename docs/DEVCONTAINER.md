@@ -728,6 +728,11 @@ volumes, daemon-wide network/PID/IPC namespace consumers, allocated-network
 claims and capacity-targeted or retained managed enrollment refuse. Repair and
 fresh initialization cannot combine with replacement.
 
+Replacement receipts retain infrastructure phases independently of application
+health; the lifecycle journal records failures. A proved replacement remains
+recoverable after an application readiness error. Only an unproved dispatched
+phase requires extra retained-population proof before ordinary recovery.
+
 One durable attempt is retained per exact checkout under
 `~/.config/devrouter/replacement-attempts/`. Cancellation, failure, stop and
 history rollover never rearm it. Before dispatch, the existing managed baseline

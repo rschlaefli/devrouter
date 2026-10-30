@@ -23,6 +23,10 @@ the existing degraded-state barrier before dispatch. Require a retained
 non-primary dependency so a released client cannot interpret the temporary
 absence of the primary as an absent Compose project and create it again.
 Capture the proved replacement stop baseline before application checks.
+Receipt phases record infrastructure proof monotonically; application or
+lifecycle errors belong to the journal outcome. An error never erases a
+proved replacement or a never-dispatched phase. Only dispatched completion
+without a new receipt baseline requires the extra ordinary-recovery guard.
 
 Why: Explicit intent preserves ordinary ensure behavior and user control over
 writable-layer loss. Existing workers, journal locks and provider serialization
