@@ -167,7 +167,7 @@ startup, `run` owns one transition/body/restore, and `resume` restores only.
 ### Focused review outcome and blocking constraints
 
 The focused Opus 5.5 review completed with findings. The core selective
-composition is plausible and requires no demonstrated upstream change, but three
+composition is plausible and requires no demonstrated upstream change, but two
 requirements prevent an implementation-ready result:
 
 1. **Older-client availability.** A closed probe uses checksum-matched released
@@ -186,20 +186,21 @@ requirements prevent an implementation-ready result:
    guard/delivery protocol. The probe's 0.6.4 stamp is hypothetical, not an actual
    release artifact; the chosen future version still needs its exact-package test.
    Identity/variant selection is a closed fixture; full worker IPC is excluded.
-2. **Post-stop probe recovery.** The currently specified safe probe must already
-   run in a proved stateful dependency. Canonical stop can stop that dependency,
-   making fresh data-ready unavailable while ordinary ensure remains fenced.
-   Initial status must report this precise terminal block and retain isolation,
-   data, unknown outcome and receipts. It must not imply automatic restoration.
-   A later restoration-only start of just the frozen probe service, followed by
-   fresh ownership/network/storage proof, is a recommended design extension.
-   It needs an explicit contract and bounded review before implementation; no
-   general application restart or implicit service start follows from this plan.
-3. **Consumer-owned semantic probe.** The receiving source has no complete safe
+2. **Consumer-owned semantic probe.** The receiving source has no complete safe
    paired-target, writer, background-cessation and full-data-ready entrypoint in
    its dependency. Its owner must implement/review that API under separate
    consumer authority. Neither a schema/marker snapshot nor a bootstrap wrapper
    substitutes for it. Source references and context limits are recorded below.
+
+The existing consumer owner clarified the stopped-probe question: bounded
+diagnostics and a positively proved canonical stop are an accepted failure
+branch, with retained data and incomplete/unknown fences. A stopped/missing
+probe service may therefore be a terminal restoration refusal; ordinary restart
+must refuse replay. Automatic probe-service restart is optional additional
+capability, not a requirement of this batch and not something to add on that
+owner's behalf. The focused review's contrary completeness assumption is
+rejected on this scope evidence. If ownership/cessation cannot be proved,
+shutdown remains unverified. No new recovery or implementation authority follows.
 
 Two further source-derived Go cases resolve the hook question. The exact pinned
 provider marker/eligibility functions show that a fresh writable layer makes
@@ -460,8 +461,8 @@ CI and draft delivery. Planning alone does not start that package.
 
 ### Proposed next source implementation batch
 
-Recommendation, not approved: after the blocking compatibility/probe-recovery
-contract rulings and consumer protocol ownership are resolved, implement the
+Recommendation, not approved: after the blocking compatibility ruling and
+consumer protocol ownership are resolved, implement the
 candidate contract on one ordinary
 task branch, using the existing config/CLI/exec worker, operation store,
 `devcontainer-profile.ts`, `devpod-environment.ts`, `devsy-exec-proof.ts` and
@@ -554,8 +555,9 @@ The private receipt remains intact. The reviewed findings and limits above are
 binding; no upstream impossibility or need for a new engine is inferred.
 
 Current dependent blockers are the operational mixed-version/global-enumeration
-contract, safe restoration after a stopped probe service, and the absent
-consumer-owned read-only semantic probe. The next source implementation package
+contract and the absent consumer-owned read-only semantic probe. A proved terminal
+stop with an unavailable probe context is an accepted consumer failure outcome;
+no automatic probe-service restart is required or authorized. The next source implementation package
 is concrete but unapproved and remains gated on those decisions. The next action is to return these blockers; no further prototype expands the
 approved terminal or supplies public implementation authority.
 Return the source-only result to the requesting owner and reconcile the existing
