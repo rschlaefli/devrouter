@@ -648,6 +648,7 @@ export function createCapacityController(options: {
           request.kind === "exec" &&
           Boolean(resolveRunningWorkspaceContainer(environment.repoPath)),
         ...(request.kind === "exec" ? { command: request.command } : {}),
+        ...(request.kind === "ensure" && request.initializeNew ? { initializeNew: true } : {}),
       });
       if (prepared.request && request.kind === "ensure") {
         try {
@@ -673,6 +674,7 @@ export function createCapacityController(options: {
             kind: request.kind,
             operation: request.operation ?? null,
             command: request.kind === "exec" ? request.command : null,
+            ...(request.kind === "ensure" && request.initializeNew ? { initializeNew: true } : {}),
           }),
         )
         .digest("hex");

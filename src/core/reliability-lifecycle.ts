@@ -39,6 +39,7 @@ import type { ExecutionOutcome } from "./execution-outcome";
 import { processBirthIdentity } from "./file-lock";
 import { listHostRouteState } from "./host-routes";
 import { proveInitialManagedDevsyAbsence } from "./managed-devsy-stop";
+import { assertFreshBootstrapRequest } from "./managed-fresh-bootstrap";
 import { resolveManagedPostStartPlan } from "./managed-post-start";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
 import {
@@ -67,6 +68,7 @@ import {
   type CapacityPhaseSettlement,
   clearStartupWitness,
   createLifecycleCapacityStore,
+  type FreshBootstrapAttempt,
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
   readReliabilityOperation,
@@ -241,6 +243,7 @@ export function prepareLifecycleOperation(
     provider: resolveWorkspaceRuntimeOrDefault(repoPath),
   };
   const ids = newLifecycleIds();
+  if (kind === "ensure") assertFreshBootstrapRequest(identity, options);
   let fence!: ReliabilityFence;
   const runtimeRunning =
     kind === "exec" ? Boolean(resolveRunningWorkspaceContainer(repoPath)) : false;
@@ -304,6 +307,7 @@ export function prepareManagedLifecycleOperation(input: {
   consumer: ReliabilityConsumer;
   runtimeRunning: boolean;
   command?: string[];
+  initializeNew?: boolean;
 }): { operationId: string; request?: LifecycleWorkerRequest } {
   if (
     input.kind === "exec"
@@ -315,6 +319,9 @@ export function prepareManagedLifecycleOperation(input: {
     throw new Error("Invalid managed operation command.");
   if (Buffer.byteLength(JSON.stringify(input)) > 32_768)
     throw new Error("Managed operation input exceeds its byte limit.");
+  if (input.initializeNew && input.kind !== "ensure")
+    throw new Error("Initialization intent is valid only for an ensure operation.");
+  if (input.kind === "ensure") assertFreshBootstrapRequest(input.identity, input);
   const ids = newLifecycleIds();
   return updateReliabilityOperation(input.identity, (record) => {
     const retained = readManagedRuntimeState(
@@ -369,7 +376,11 @@ export function prepareManagedLifecycleOperation(input: {
         repoPath: input.identity.repoPath,
         identity: { ...input.identity },
         fence: reliabilityFence(record.state),
-        options: { profile: input.profile, quiet: true },
+        options: {
+          profile: input.profile,
+          quiet: true,
+          ...(input.initializeNew ? { initializeNew: true } : {}),
+        },
         ...(input.command ? { command: [...input.command] } : {}),
       },
     };
@@ -969,6 +980,7 @@ export async function superviseLifecycle(
   };
   const ids = newLifecycleIds();
   const copiedOptions = { ...options };
+  if (kind === "ensure") assertFreshBootstrapRequest(identity, options);
   const copiedCommand = command ? [...command] : undefined;
   if (kind === "stop") {
     const intent = updateReliabilityOperation(identity, (record): LifecycleStopIntent => {
@@ -1018,6 +1030,7 @@ export async function superviseLifecycle(
       identity,
       requestId: ids.requestId,
       profile: copiedOptions.profile,
+      ...(copiedOptions.initializeNew ? { initializeNew: true } : {}),
       ...(copiedCommand ? { command: copiedCommand } : {}),
     });
   if (initial.state.executionPolicy !== "manual")
@@ -1322,6 +1335,7 @@ async function superviseThroughController(input: {
   requestId: string;
   profile?: string;
   command?: string[];
+  initializeNew?: boolean;
 }): Promise<unknown> {
   if (input.kind === "exec" && !input.command)
     throw new Error("Exec requires a command for controller admission.");
@@ -1362,7 +1376,12 @@ async function superviseThroughController(input: {
       directory,
       input.kind === "exec"
         ? { ...binding, requestId: input.requestId, kind: "exec", command: input.command ?? [] }
-        : { ...binding, requestId: input.requestId, kind: "ensure" },
+        : {
+            ...binding,
+            requestId: input.requestId,
+            kind: "ensure",
+            ...(input.initializeNew ? { initializeNew: true as const } : {}),
+          },
       { waitSeconds: controllerWaitSeconds(deadline), onOutput },
     );
     while (pending.status !== "terminal") {
@@ -1623,6 +1642,66 @@ export function clearActiveLifecycleStartupWitness(): void {
   const record = readReliabilityOperation(request.identity);
   if (record?.startupWitness?.operationId !== request.operationId) return;
   clearStartupWitness(request.identity, reliabilityFence(record.state));
+}
+
+/** Claim initialization before provider dispatch; later operations cannot rearm it. */
+export function claimActiveFreshBootstrap(
+  evidence: Omit<
+    FreshBootstrapAttempt,
+    "version" | "operationId" | "workerId" | "runtimeGeneration" | "stage" | "resources"
+  >,
+): FreshBootstrapAttempt {
+  const request = activeWorker;
+  if (
+    request?.kind !== "ensure" ||
+    request.options.initializeNew !== true ||
+    request.options.repair
+  )
+    throw new Error("Fresh bootstrap requires an explicit initialization worker.");
+  claimLifecycleEffect();
+  return updateReliabilityOperation(request.identity, (record) => {
+    if (
+      !matchesFence(record, request.fence) ||
+      record.worker?.id !== request.workerId ||
+      record.state.operation?.id !== request.operationId ||
+      record.freshBootstrap
+    )
+      throw new Error(
+        "Fresh-bootstrap authority is stale or already claimed; initialization was not retried.",
+      );
+    record.freshBootstrap = {
+      ...evidence,
+      version: 1,
+      operationId: request.operationId,
+      workerId: request.workerId,
+      runtimeGeneration: request.fence.runtimeGeneration,
+      stage: "claimed",
+    };
+    return structuredClone(record.freshBootstrap);
+  });
+}
+
+export function advanceActiveFreshBootstrap(
+  stage: FreshBootstrapAttempt["stage"],
+  resources?: FreshBootstrapAttempt["resources"],
+): void {
+  const request = activeWorker;
+  if (request?.kind !== "ensure" || request.options.initializeNew !== true)
+    throw new Error("Fresh-bootstrap phase requires its initialization worker.");
+  claimLifecycleEffect();
+  updateReliabilityOperation(request.identity, (record) => {
+    const attempt = record.freshBootstrap;
+    if (
+      !matchesFence(record, request.fence) ||
+      record.worker?.id !== request.workerId ||
+      attempt?.operationId !== request.operationId ||
+      attempt.workerId !== request.workerId ||
+      attempt.runtimeGeneration !== request.fence.runtimeGeneration
+    )
+      throw new Error("Fresh-bootstrap attempt changed before its next phase.");
+    attempt.stage = stage;
+    if (resources !== undefined) attempt.resources = structuredClone(resources);
+  });
 }
 
 async function acquireWorkerLock<T>(repoPath: string, operation: () => Promise<T>): Promise<T> {

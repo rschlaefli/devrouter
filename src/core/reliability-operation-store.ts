@@ -106,6 +106,26 @@ export type ReliabilityIdleProtection = {
   pinned: boolean;
 };
 
+export type FreshBootstrapAttempt = {
+  version: 1;
+  operationId: string;
+  workerId: string;
+  runtimeGeneration: number;
+  sourceSha256: string;
+  providerId: string;
+  providerContext: string;
+  definitionSha256: string;
+  endpoint: string;
+  daemonId: string;
+  previousVolumeNameDigests: string[];
+  stage: "claimed" | "provisioned" | "initializing" | "initialized" | "ready" | "failed";
+  resources?: {
+    primaryId: string;
+    project: string;
+    dataVolumes: { key: string; name: string; createdAt: string; mountpoint: string }[];
+  };
+};
+
 export type ReliabilityOperationRecord = {
   version: 1 | 2;
   identity: ReliabilityIdentity;
@@ -120,6 +140,8 @@ export type ReliabilityOperationRecord = {
    * withdrawal with this absent proves that the recorded stop ran no work.
    */
   stopWorkStarted?: boolean | null;
+  /** Initialization authority survives lifecycle settlement and rolling history. */
+  freshBootstrap?: FreshBootstrapAttempt;
   effectSequence: number;
   outcome: (ExecutionOutcome & { operationId: string }) | null;
   /** CLI version that last wrote this record; absent in pre-0.0.67 records. */
@@ -429,6 +451,7 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
     "state",
     "worker",
     "stopWorkStarted",
+    "freshBootstrap",
     "effectSequence",
     "outcome",
     "result",
@@ -448,6 +471,85 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
   ]);
   validateConsumerProtection(record);
   validateIdleProtection(record);
+  if (record.freshBootstrap !== undefined) {
+    const attempt = record.freshBootstrap;
+    keys(attempt, [
+      "version",
+      "operationId",
+      "workerId",
+      "runtimeGeneration",
+      "sourceSha256",
+      "providerId",
+      "providerContext",
+      "definitionSha256",
+      "endpoint",
+      "daemonId",
+      "previousVolumeNameDigests",
+      "stage",
+      "resources",
+    ]);
+    const digest = (value: unknown) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+    const exact = (value: unknown) =>
+      typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(value);
+    if (
+      attempt.version !== 1 ||
+      !isReliabilityId(attempt.operationId) ||
+      !isReliabilityId(attempt.workerId) ||
+      !isReliabilityCounter(attempt.runtimeGeneration) ||
+      !digest(attempt.sourceSha256) ||
+      !digest(attempt.definitionSha256) ||
+      !exact(attempt.providerId) ||
+      !exact(attempt.providerContext) ||
+      typeof attempt.endpoint !== "string" ||
+      !attempt.endpoint.startsWith("unix:///") ||
+      attempt.endpoint.includes("\0") ||
+      typeof attempt.daemonId !== "string" ||
+      attempt.daemonId.length === 0 ||
+      attempt.daemonId.length > 256 ||
+      !["claimed", "provisioned", "initializing", "initialized", "ready", "failed"].includes(
+        attempt.stage,
+      ) ||
+      !Array.isArray(attempt.previousVolumeNameDigests) ||
+      attempt.previousVolumeNameDigests.length > 4096 ||
+      !attempt.previousVolumeNameDigests.every(digest) ||
+      new Set(attempt.previousVolumeNameDigests).size !== attempt.previousVolumeNameDigests.length
+    )
+      throw new Error("Invalid durable fresh-bootstrap attempt.");
+    if (attempt.resources !== undefined) {
+      const resources = attempt.resources;
+      keys(resources, ["primaryId", "project", "dataVolumes"]);
+      if (
+        !digest(resources.primaryId) ||
+        !exact(resources.project) ||
+        !Array.isArray(resources.dataVolumes) ||
+        resources.dataVolumes.length === 0 ||
+        resources.dataVolumes.length > 64
+      )
+        throw new Error("Invalid fresh-bootstrap resource binding.");
+      const names = new Set<string>();
+      const bindings = new Set<string>();
+      for (const volume of resources.dataVolumes) {
+        keys(volume, ["key", "name", "createdAt", "mountpoint"]);
+        if (
+          !exact(volume.key) ||
+          typeof volume.name !== "string" ||
+          !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,255}$/.test(volume.name) ||
+          names.has(volume.name) ||
+          bindings.has(volume.key) ||
+          typeof volume.createdAt !== "string" ||
+          !Number.isFinite(Date.parse(volume.createdAt)) ||
+          typeof volume.mountpoint !== "string" ||
+          !path.isAbsolute(volume.mountpoint) ||
+          volume.mountpoint.includes("\0")
+        )
+          throw new Error("Invalid fresh-bootstrap data-volume binding.");
+        names.add(volume.name);
+        bindings.add(volume.key);
+      }
+    } else if (["provisioned", "initializing", "initialized", "ready"].includes(attempt.stage)) {
+      throw new Error("Fresh-bootstrap phase requires proven resource bindings.");
+    }
+  }
   if (
     record.writtenByVersion !== undefined &&
     compareCliVersions(record.writtenByVersion, installedCliVersion()) > 0
@@ -1132,9 +1234,34 @@ export function updateReliabilityOperation<T>(
     const previousEnrollment = record.enrollment && { ...record.enrollment };
     const previousProtection = structuredClone(record.consumerProtection);
     const previousIdleProtection = structuredClone(record.idleProtection);
+    const previousBootstrap = structuredClone(record.freshBootstrap);
     const result = operation(record);
     if (result && typeof (result as { then?: unknown }).then === "function") {
       throw new Error("Reliability record updates must be synchronous.");
+    }
+    if (previousBootstrap && !isDeepStrictEqual(previousBootstrap, record.freshBootstrap)) {
+      const current = record.freshBootstrap;
+      const {
+        stage: previousStage,
+        resources: previousResources,
+        ...previousIdentity
+      } = previousBootstrap;
+      const { stage, resources, ...currentIdentity } = current ?? {};
+      const next: Record<FreshBootstrapAttempt["stage"], string[]> = {
+        claimed: ["provisioned", "failed"],
+        provisioned: ["initializing", "failed"],
+        initializing: ["initialized", "failed"],
+        initialized: ["ready"],
+        ready: [],
+        failed: [],
+      };
+      if (
+        !current ||
+        !isDeepStrictEqual(previousIdentity, currentIdentity) ||
+        !next[previousStage].includes(stage ?? "") ||
+        (previousResources && !isDeepStrictEqual(previousResources, resources))
+      )
+        throw new Error("Durable fresh-bootstrap attempt cannot be cleared, replaced or rearmed.");
     }
     if (
       record.version < previousVersion ||

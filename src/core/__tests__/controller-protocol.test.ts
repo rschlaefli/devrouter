@@ -232,6 +232,21 @@ describe("parseControllerRequest", () => {
     expect(parseControllerRequest(exec)).toEqual(exec);
   });
 
+  it("preserves explicit fresh initialization only on ensure requests", () => {
+    const value = request("operation-submit", {
+      session: BASE_IDS.session,
+      store: BASE_IDS.store,
+      epoch: 1,
+      generation: BASE_IDS.generation,
+      requestId: "fresh-request",
+      kind: "ensure",
+      initializeNew: true,
+    });
+    expect(parseControllerRequest(value)).toEqual(value);
+    expect(() => parseControllerRequest({ ...value, initializeNew: false })).toThrow();
+    expect(() => parseControllerRequest({ ...value, kind: "exec", command: ["true"] })).toThrow();
+  });
+
   it("parses operation watches with a bounded output cursor", () => {
     const watch = request("operation-watch", {
       session: BASE_IDS.session,

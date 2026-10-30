@@ -25,6 +25,7 @@ source_paths:
   - src/core/devsy-exec.ts
   - src/core/managed-runtime*.ts
   - src/core/managed-host-ports.ts
+  - src/core/managed-fresh-bootstrap.ts
   - src/core/reliability-lifecycle.ts
   - src/core/status.ts
   - src/core/doctor.ts
@@ -50,6 +51,15 @@ and [ADR 0009](../adr/0009-preserve-compose-network-ownership.md).
 Managed lifecycle commands bind one primary or linked Git checkout to one exact workspace runtime generation. The runtime is DevPod or Devsy, resolved per checkout path in `src/core/workspace-runtime.ts`: `DEVROUTER_WORKSPACE_RUNTIME` forces one runtime, an exact-path registry owner wins next (mixed fleets keep their checkouts separated), then the machine preference persisted by `devrouter setup --workspace-runtime`, then installed-CLI auto-detection (DevPod first when both are installed). Use these commands instead of direct DevPod/Devsy lifecycle mutations; direct provider commands do not participate in Devrouter's locks or ownership proofs.
 
 ## Startup flow
+
+Explicit fresh initialization extends this flow only when requested with
+`--initialize-new` and a repository-owned `freshBootstrap` declaration. One
+durable attempt outside rolling operation history fences provider creation,
+literal initialization and preserving-hook replay. Settlement and resource loss
+never rearm initialization. Existing source, population, endpoint, worker and
+stop proofs still apply; the repository owns database semantics. See the
+[fresh initialization contract](../DEVCONTAINER.md#initialize-a-new-disposable-managed-environment)
+for qualified contexts, volume bindings and failure recovery.
 
 `src/core/workspace-ensure.ts:workspaceEnsure` is the canonical reconciliation path for both primary and linked checkouts:
 

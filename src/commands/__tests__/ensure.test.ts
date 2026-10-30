@@ -43,6 +43,19 @@ beforeEach(() => {
 });
 
 describe("runEnsureCommand host-port refusal output", () => {
+  it("carries explicit fresh intent into supervised startup", async () => {
+    vi.mocked(superviseLifecycle).mockResolvedValue(refusalResult());
+    await runEnsureCommand({ json: true, profile: "web", initializeNew: true });
+    expect(superviseLifecycle).toHaveBeenCalledWith(
+      "ensure",
+      "/repo",
+      expect.objectContaining({
+        initializeNew: true,
+        profile: "web",
+      }),
+    );
+  });
+
   it("prints a machine-readable refusal under --json and exits nonzero", async () => {
     vi.mocked(superviseLifecycle).mockResolvedValue(refusalResult());
 

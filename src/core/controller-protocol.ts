@@ -109,7 +109,7 @@ type ControllerOperationSubmitBinding = {
 };
 
 export type ControllerOperationSubmitRequest =
-  | (ControllerOperationSubmitBinding & { kind: "ensure"; command?: never })
+  | (ControllerOperationSubmitBinding & { kind: "ensure"; command?: never; initializeNew?: true })
   | (ControllerOperationSubmitBinding & { kind: "exec"; command: string[] });
 
 export type ControllerOutputCursor = {
@@ -528,13 +528,15 @@ export function parseControllerRequest(input: unknown): ControllerRequest {
           input,
           "operation-submit",
           ["session", "store", "epoch", "generation", "requestId", "kind"],
-          ["operation", "command"],
+          ["operation", "command", "initializeNew"],
         );
         const kind = input.kind;
         if (kind !== "ensure" && kind !== "exec") invalidRequest();
         const operation = optionalString(input, "operation", parseId);
         if (kind === "ensure") {
           if (Object.hasOwn(input, "command")) invalidRequest();
+          if (Object.hasOwn(input, "initializeNew") && input.initializeNew !== true)
+            invalidRequest();
           return {
             ...header,
             session: parseId(input.session),
@@ -544,9 +546,11 @@ export function parseControllerRequest(input: unknown): ControllerRequest {
             requestId: parseId(input.requestId),
             kind,
             ...(operation === undefined ? {} : { operation }),
+            ...(input.initializeNew === true ? { initializeNew: true as const } : {}),
           };
         }
-        if (!Object.hasOwn(input, "command")) invalidRequest();
+        if (!Object.hasOwn(input, "command") || Object.hasOwn(input, "initializeNew"))
+          invalidRequest();
         return {
           ...header,
           session: parseId(input.session),

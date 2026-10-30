@@ -403,6 +403,16 @@ before relying on warm container reuse.
 
 ## Observing consumer readiness
 
+For explicit first initialization, declare
+`managedRuntime.devcontainer.freshBootstrap` with literal `command` argv,
+`dataVolumes` keys and optional `sharedCaches` keys, then use `ensure <new-checkout>
+--initialize-new --profile <name>`. This requires the qualified Devsy 1.19.0
+context and new local data volumes. A durable attempt prevents replay after
+failure, cancellation, stop, replacement or settlement. The repository must
+verify database identity and emptiness, and keep ordinary hooks preserving.
+Use canonical stop/recovery for retained data; never remove the attempt fence.
+See [the supported prerequisites and recovery contract](https://github.com/rschlaefli/devrouter/blob/main/docs/DEVCONTAINER.md#initialize-a-new-disposable-managed-environment).
+
 For ongoing readiness, explicitly start `devrouter controller run`, then enroll
 the managed linked checkout with `controller observe --session <id> --profile
 <profile> --require runtime`. Use `--require app:<name>` for an application with

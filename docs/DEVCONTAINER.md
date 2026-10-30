@@ -481,6 +481,58 @@ Application environment setup and the exact command remain repository-owned.
 HTTP readiness remains host-side in `ensure`, so applications do not
 need a second route-health policy.
 
+## Initialize a new disposable managed environment
+
+Repositories whose ordinary bootstrap only verifies existing data can declare
+an explicit first-initialization command in `.devrouter.yml`:
+
+```yaml
+managedRuntime:
+  devcontainer:
+    baseServices: [postgres]
+    profileServices: []
+    freshBootstrap:
+      command: [node, .devcontainer/bootstrap.mjs, --initialize-new-disposable]
+      dataVolumes: [pgdata]
+      sharedCaches: [pnpm_store]
+```
+
+Run `devrouter ensure <new-checkout> --profile <name> --initialize-new --json`
+only for a new disposable environment. The command is literal argv. The
+repository owns database identity, emptiness, schema and seed checks. Its
+ordinary hooks must preserve existing data, including after container replacement.
+The selected profile must mount every declared data-volume and shared-cache key.
+
+This operation requires Devsy 1.19.0 with the qualified local Docker provider,
+the default `loginInteractiveShell` environment probe, and no `remoteEnv.PATH`,
+declared secrets, features, `onCreateCommand` or `updateContentCommand`. A
+declared post-start hook requires `waitFor: postStartCommand`. Capacity-managed
+environments require a matching controller version that accepts initialization
+intent. Unsupported contexts refuse before the initializer runs.
+
+Host preparation runs before complete Compose inspection. Devrouter refuses
+retained runtime state, registrations, provider files and surviving checkout
+containers. Non-cache volumes must use new local storage, without fixed names,
+external backing or driver options; explicitly declared shared caches must be
+external. Writable bind mounts must stay within the checkout, except for the primary
+service's same-path mount of its proven Git common directory. An explicit
+Compose project name also refuses. Creation times alone never prove freshness.
+
+Under the lifecycle and provider locks, Devrouter records one durable attempt
+before provider dispatch, defers post-create/start/attach hooks, and proves the
+new population, endpoint and mounts. It saves a strict stop baseline before
+executing the initializer once through public named workspace exec. Success
+then runs the original preserving hooks and existing managed adapter, with
+routes published last.
+
+Failure, cancellation or unknown completion retains partial data and the attempt.
+Ordinary preserving recovery remains available when its normal ownership and
+drainage checks pass. `--initialize-new` never retries that checkout's attempt,
+including after stop, registration loss, replacement or journal settlement.
+Use a new disposable checkout for a new initialization; no reset or rearm command
+is provided. Non-destructive `devrouter stop <checkout>` retains data and refuses
+when worker or resource ownership remains unproven.
+
 ## Select only the capabilities a task needs
 
 Repositories that generate Compose inputs on the host can declare

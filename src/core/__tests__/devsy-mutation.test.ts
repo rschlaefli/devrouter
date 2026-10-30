@@ -347,6 +347,98 @@ describe("Devsy mutation adapter", () => {
 });
 
 describe("startDevsyWorkspace", () => {
+  const freshBinding = {
+    provider: "devsy" as const,
+    providerId: "feature",
+    endpoint: "unix:///tmp/synthetic.sock",
+    daemonId: "daemon",
+    definitionSha256: "a".repeat(64),
+    providerContext: "default",
+  };
+
+  it("defers hooks, initializes and resumes ordinary startup under one provider lock", async () => {
+    let locked = false;
+    vi.mocked(withFileLock).mockImplementationOnce(async (_path, _options, operation) => {
+      locked = true;
+      try {
+        return await operation();
+      } finally {
+        locked = false;
+      }
+    });
+    let lists = 0;
+    vi.mocked(spawnSync).mockImplementation(() => listResult(lists++ === 0 ? [] : [owned]));
+    const prepare = vi.fn(() => {
+      expect(locked).toBe(true);
+      expect(spawn).not.toHaveBeenCalled();
+      return {
+        binding: freshBinding,
+        afterStart: async (resume: () => Promise<void>) => {
+          expect(locked).toBe(true);
+          expect(spawn).toHaveBeenCalledTimes(1);
+          await resume();
+          expect(locked).toBe(true);
+        },
+      };
+    });
+    expect(
+      await startDevsyWorkspace({
+        repoPath: "/repo/feature",
+        devsyId: "feature",
+        freshBootstrap: { prepare },
+      }),
+    ).toBe("feature");
+    expect(withFileLock).toHaveBeenCalledTimes(1);
+    expect(prepare).toHaveBeenCalledWith("feature", undefined);
+    const starts = vi.mocked(spawn).mock.calls;
+    expect(starts).toHaveLength(2);
+    expect(starts[0][1]).toEqual([
+      ...(starts[1][1] as string[]),
+      "--skip-post-create",
+      "--skip-post-start",
+      "--skip-post-attach",
+    ]);
+    expect(starts[1][1]).toContain("DOCKER_HOST=unix:///tmp/synthetic.sock");
+    expect(locked).toBe(false);
+  });
+
+  it("retains initialization failure without resuming hooks or retrying provider creation", async () => {
+    let lists = 0;
+    vi.mocked(spawnSync).mockImplementation(() => listResult(lists++ === 0 ? [] : [owned]));
+    const afterStart = vi.fn(async () => {
+      throw new Error("initializer failed");
+    });
+    await expect(
+      startDevsyWorkspace({
+        repoPath: "/repo/feature",
+        devsyId: "feature",
+        freshBootstrap: {
+          prepare: () => ({ binding: freshBinding, afterStart }),
+        },
+      }),
+    ).rejects.toThrow(DevsyStartPostconditionError);
+    expect(afterStart).toHaveBeenCalledOnce();
+    expect(spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    undefined,
+    "feature",
+  ])("never uses fresh initialization to recreate a provider (%s)", async (devsyId) => {
+    vi.mocked(spawnSync).mockReturnValue(listResult(devsyId ? [owned] : []));
+    const prepare = vi.fn();
+    await expect(
+      startDevsyWorkspace({
+        repoPath: "/repo/feature",
+        devsyId,
+        recreate: true,
+        freshBootstrap: { prepare },
+      }),
+    ).rejects.toThrow();
+    expect(prepare).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it("prepares a pinned allocation before dispatch and retains an uncertain failure", async () => {
     vi.mocked(spawnSync).mockReturnValue(listResult());
     const retainUncertain = vi.fn();
