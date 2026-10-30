@@ -69,7 +69,7 @@ The remaining recommendations are recorded here without creating new authority.
 
 | Work | Next acceptance and owner | Authority and boundary |
 | --- | --- | --- |
-| Retained maintenance contract | Source-only probes establish a candidate selective path, hook replay and released-reader limitations. Resolve mixed-version/global-enumeration policy, restoration after a stopped probe service and the consumer semantic probe. Devrouter owner; consumer owner retains its probe. | Feasibility batch reached its reviewed blocker terminal. Public implementation is not authorized. A profile alone does not establish the promised isolation. |
+| Retained maintenance contract | Source-only probes establish a candidate selective path, hook replay and released-reader limitations. Resolve mixed-version/global-enumeration policy and the consumer semantic probe; retain proved terminal stop as an accepted failure branch. Devrouter owner; consumer owner retains its probe. | Feasibility batch reached its reviewed blocker terminal. Public implementation is not authorized. A profile alone does not establish the promised isolation. |
 | Replacement release preparation | Use the actual future writer version to verify expected older-reader refusal and retained receipts. Disclose the one-attempt-per-environment limit, adoption and downgrade constraints. Devrouter release owner. | Source evidence is complete; named release/publication/installation authority remains necessary. Reuse the unchanged candidate and synthetic proof. |
 | Consumer acceptance | Receiving replacement owner proves supported installed adoption and its own bounded useful-work journey; pilot owner proves its corrected PWA acceptance. | Their approvals, CI exceptions and runtime/data effects stay with their owners. Neither lane is closed by the source merge. |
 | Repeat replacement and shared tooling | Keep a proposed newer-stopped-generation contract for repeat replacement, preserving no-replay and unknown outcomes. Shared routing, result classification, task binding and fixture validation keep their recorded owners. | Proposed follow-ups; no receipt deletion, new supervisor, global routing rewrite or consumer takeover. |
@@ -82,8 +82,10 @@ A separate source-derived marker probe confirms that fresh layers can replay
 provider hooks and skip flags leave onCreate/updateContent eligible. These are
 reasons to retain explicit adoption and hook qualifications, not weaken guards.
 
-The existing safe dependency probe is also absent in consumer source, and a
-canonical stop can stop that context. The
+The existing safe dependency probe is also absent in consumer source. Its owner
+confirms that a proved canonical stop with a stopped/missing probe context is an
+accepted terminal refusal. Probe-service restart is optional additional capability
+and is not a prerequisite to this source-only result. The
 [maintenance result](https://github.com/rschlaefli/devrouter/blob/rs/retained-maintenance-plan/docs/project/2026-10-30-retained-maintenance-transition-plan.md#focused-review-outcome-and-blocking-constraints)
 records the exact observations and proposed next contract decisions. No public
 maintenance implementation or live qualification follows from this result.
