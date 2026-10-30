@@ -450,6 +450,8 @@ else fail();
       );
       freshHome("managed-home");
       configure("complete");
+      const preparationMarker = path.join(repo, "preparation-count");
+      const preparation = `const fs=require('node:fs');const p=${JSON.stringify(preparationMarker)};fs.appendFileSync(p,'prepared\\n');`;
       const managedConfig =
         fs.readFileSync(path.join(repo, ".devrouter.yml"), "utf8") +
         "managedRuntime:\n  devcontainer:\n    baseServices: []\n    profileServices: []\n  processes: []\n";
@@ -484,6 +486,37 @@ else fail();
       const stateFile = path.join(stateDirectory, stateName);
       const managedState = JSON.parse(fs.readFileSync(stateFile, "utf8"));
       assert.equal(managedState.status, "ready");
+      for (const stopped of [false, true]) {
+        if (stopped) {
+          const stopReady = launch(["stop", repo, "--json"]);
+          assert.equal(await stopReady.done, 0, stopReady.output());
+        }
+        const stateBefore = fs.readFileSync(stateFile, "utf8");
+        fs.writeFileSync(
+          path.join(repo, ".devrouter.yml"),
+          managedConfig.replace(
+            "    profileServices: []\n",
+            `    profileServices: []\n    prepareCommand: ${JSON.stringify([node, "-e", preparation])}\n`,
+          ),
+        );
+        const resourcesBefore = JSON.parse(fs.readFileSync(fixture, "utf8"));
+        const refused = launch(["ensure", repo, "--repair", "--json"]);
+        assert.equal(await refused.done, 1, refused.output());
+        assert.equal(read().state.operation.status, "COMPLETED");
+        assert.equal(read().state.operation.exitCode, 1);
+        assert.equal(read().state.operation.drained, true);
+        assert.equal(read().worker, null);
+        assert.equal(fs.readFileSync(stateFile, "utf8"), stateBefore);
+        assert.equal(fs.existsSync(preparationMarker), false);
+        assert.deepEqual(JSON.parse(fs.readFileSync(fixture, "utf8")), resourcesBefore);
+        fs.writeFileSync(path.join(repo, ".devrouter.yml"), managedConfig);
+        const ordinary = launch(["ensure", repo, "--json"]);
+        assert.equal(await ordinary.done, 0, ordinary.output());
+        assert.equal(JSON.parse(fs.readFileSync(stateFile, "utf8")).status, "ready");
+      }
+      evidence.push(
+        "ready and stopped non-degraded repair refuse before preparation or provider effects with completed exit 1; ordinary ensure remains usable",
+      );
       managedState.status = "degraded";
       fs.writeFileSync(stateFile, JSON.stringify(managedState));
       const beforeRepair = JSON.parse(fs.readFileSync(fixture, "utf8"));

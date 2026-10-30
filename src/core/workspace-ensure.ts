@@ -107,6 +107,9 @@ const DEVCONTAINER_OVERLAY = "docker-compose.devrouter.yml";
 const DEFAULT_READINESS_TIMEOUT_MS = 120_000;
 const POLL_INTERVAL_MS = 1_000;
 
+/** Only an eligibility refusal before repository preparation has a known failure outcome. */
+export class WorkspaceEnsureRefusalError extends Error {}
+
 export type WorkspaceEnsureResult = {
   kind: "primary" | "linked";
   repoPath: string;
@@ -2178,6 +2181,20 @@ export async function workspaceEnsure(
   return withLifecycleOperationLock(repoPath, async () => {
     preflightRuntimeVariant(repoPath, options);
     const preparationConfig = loadRepoConfig(repoPath);
+    if (options.repair) {
+      const workspace = linked ? readPersistedWorkspace(repoPath) : undefined;
+      if (!linked || workspace) {
+        const retained = readManagedRuntimeState(repoPath, workspace);
+        if (retained?.status !== "degraded") {
+          const checkout = `'${repoPath.replaceAll("'", "'\\''")}'`;
+          throw new WorkspaceEnsureRefusalError(
+            "Repair requires a persisted degraded managed runtime. " +
+              `Inspect this checkout with: devrouter doctor --repo ${checkout} --json. ` +
+              "Ordinary ensure may run repository startup hooks; verify their preservation contract before startup.",
+          );
+        }
+      }
+    }
     if (!options.repair)
       recoverUnattachedNetworkReservation(repoPath, Boolean(preparationConfig.managedRuntime));
     assertRetainedNetworkConfiguration({

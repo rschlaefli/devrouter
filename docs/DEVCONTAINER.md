@@ -647,6 +647,13 @@ drops does not have to start first. Failed transitions retain degraded state and
 do not replay the broken baseline adapter. No separate repair command is needed. The compatibility
 `--repair` option limits the invocation to the recorded-profile repair path.
 
+An explicit repair without persisted degraded state refuses before repository
+preparation or provider changes. Its journal records a completed nonzero failure,
+while cancellation or uncertain completion remains interrupted. Inspect the
+exact checkout with `devrouter doctor --repo <checkout> --json` to choose the next
+action. Ordinary `ensure` can run repository startup hooks; verify their data
+preservation contract before starting a retained environment.
+
 If a degraded runtime remains after `managedRuntime` is removed from the repository
 configuration, restore that configuration before recovery. Devrouter retains the
 runtime and its generated configuration until it can prove a safe transition.
