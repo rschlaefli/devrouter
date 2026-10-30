@@ -112,6 +112,24 @@ six finding dispositions remain the detailed contract and reusable plan critique
 
 ## Progress
 
+- Delivery completed: PR #169 merged at
+  `525b4e23f2e4cb0ac3319a1abedde59020680d28`, complete tree equal to reviewed
+  `094d7d8d801ebccc0ff7cb00cec73aaef6583c89`. Release
+  [v0.6.3](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.3) and
+  [release workflow](https://github.com/rschlaefli/devrouter/actions/runs/41075117143)
+  pass. Registry integrity and all 105 package members match the tested package; the
+  explicitly approved exact Volta installation also matches every member and
+  all PATH-visible entries select 0.6.3. The registry omits gitHead, so source
+  proof uses the actual tag, equal Git trees and complete package byte equality.
+  The requesting recovery owner's notice could not be confirmed because its
+  task host was unavailable; other authorized owner notices were delivered.
+- Consumer acceptance remains open under its existing owner. Ordinary ensure
+  conditionally selects retained repair; it does not expose an unconditional
+  retained-only constraint if the entry state/project changes. Qualify ordinary
+  repository hooks before invoking it. The existing preserving bootstrap default
+  is being assessed as the smallest consumer adaptation; changing a destructive
+  startup default or cold-initialization behavior requires a concrete consumer
+  ruling. No consumer source, runtime or database effects followed this release.
 - Current continuation, 2026-10-30: the existing native goal is active and targets
   ordinary preserving startup plus owner-verified consumer acceptance. The
   source correction in PR169 is reviewed and passes exact-head CI at e138da8e.

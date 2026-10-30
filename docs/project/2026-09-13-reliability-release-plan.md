@@ -8,15 +8,18 @@ it cannot, it should explain the specific obstruction and return the smallest
 validated next action. Agents should not need to infer internal lifecycle state
 or assemble a sequence of repair commands from chat history.
 
-**Delivery status:** [0.6.2](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.2)
-is the latest published release. The 0.6.3 compatibility candidate in
-[draft PR #169](https://github.com/rschlaefli/devrouter/pull/169) now passes the
-previously held Devsy 1.24.0 replacement after explicitly approved preparation
-through the existing verified-agent cache. Actual injected-agent bytes, changed
-container identity, retained volumes and database relationships, replay refusal
-and final stop are proved on the synthetic fixture. Publication and consumer
-acceptance remain pending. The [fresh-bootstrap plan](./2026-10-29-managed-fresh-bootstrap-plan.md#devsy-1240-qualification-checkpoint--release-held)
-owns the producing evidence and the historical failed qualification.
+**Delivery status:** [0.6.3](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.3)
+is published from merged revision `525b4e23f2e4cb0ac3319a1abedde59020680d28`
+through [PR #169](https://github.com/rschlaefli/devrouter/pull/169).
+The merged tree equals reviewed candidate `094d7d8d`; its
+[release workflow](https://github.com/rschlaefli/devrouter/actions/runs/41075117143)
+passes. Registry integrity, all 105 package members and the explicitly approved
+selected Volta installation match the tested artifact. Devsy 1.24.0 synthetic
+replacement passes after approved verified-agent preparation: actual agent bytes,
+changed container identity, retained volumes and database relationships, replay
+refusal and final stop are proved. Consumer acceptance remains open. The
+[fresh-bootstrap plan](./2026-10-29-managed-fresh-bootstrap-plan.md#progress)
+owns the producing evidence and historical failed qualification.
 
 This front section replaces the older current-status table and priority order.
 Historical execution records below remain evidence, not current completion
@@ -143,7 +146,7 @@ Fixture destination/provider/alias validation directly supports qualification;
 reuse that existing item. Do not make a global orchestration rewrite a
 prerequisite for fixing the product path.
 
-Current source delivery: draft PR #169 at
+Released executable producer: PR #169 at
 `e138da8e5bf0fc18aff8c1741bdbf4ec2d6b4e50` contains the reproduced repair-refusal
 correction. Eligibility and missing linked identity are checked before
 preparation; only the owned early known refusal completes with exit 1. Later
@@ -156,9 +159,21 @@ producing results, not tests rerun by this roadmap update. Evidence is recorded 
 [lifecycle delivery plan](./2026-10-29-lifecycle-delivery-plan.md#ordinary-startup-refusal-correction--2026-10-30).
 The final receipt is `docs/project/_local/reviews/2026-10-30-refocus-delivery-evidence.json`
 in the existing task worktree; it supersedes earlier pending entries in that
-plan. The candidate is unmerged and unreleased. Later live Devsy acquisition and
-replacement qualification pass through the approved verified-cache path.
-Actual consumer acceptance remains open.
+plan. Later source-identical merge, release and selected installation are proved
+above. Live Devsy acquisition and replacement qualification pass through the
+approved verified-cache path. Actual consumer acceptance remains open.
+
+Ordinary ensure selects retained repair under the checkout lock when persisted
+degraded state and the exact Compose project match. Once selected for the same
+profile and variant, repair retains its fail-closed ownership checks and skips
+provider startup. General ensure can select provider startup when those entry
+conditions do not hold; an external preflight is not an atomic retained-only
+instruction. Consumer acceptance must qualify preserving repository hooks for
+the allowed path. The existing consumer owner is assessing composition with its
+preserving bootstrap default before any changed source or runtime effects.
+Fresh initialization stays separately explicit; database identity alone does
+not prove both target schemas empty. Prefer existing preserving-hook composition
+where it meets the required contract.
 
 The side-chat investigation changed only this current-direction section. The
 main Devrouter owner retains the execution record and next implementation batch.
@@ -176,8 +191,9 @@ through authorized release and installation steps, and close the incident with
 owner-verified consumer acceptance. A truthful refusal is a valid safety outcome;
 it does not by itself close a consumer incident requiring a working environment.
 
-**Resume point and authority:** reuse `trees/rs/lifecycle-delivery`, branch
-`rs/fresh-bootstrap-devsy-124`, the two linked execution plans and draft PR #169.
+**Resume point and authority:** reuse `trees/rs/lifecycle-delivery`, now on
+`rs/retained-consumer-acceptance` from released main `525b4e23`, and the two
+linked execution plans. PR #169 is merged; retain its source evidence.
 Refresh remote/head/worktree evidence before mutation and preserve concurrent
 owner changes. This side conversation authorizes this roadmap update, not new
 runtime, merge, release, installation or messaging effects. Recover the actual
