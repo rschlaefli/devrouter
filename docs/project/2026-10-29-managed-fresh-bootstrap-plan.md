@@ -166,3 +166,42 @@ six finding dispositions remain the detailed contract and reusable plan critique
   after the final provider revalidation. Typecheck, docs/knowledge and packed
   0.6.2 smoke pass. Exact final-artifact qualification and integrated review remain
   pending; no release has occurred.
+
+
+## Devsy 1.24.0 qualification extension — 2026-10-30
+
+Approval mode: executable batch. Actual human authority is the requesting recovery
+chat's approval of “qualify 1.24.0 and release a compatible patch if verification
+passes”, answered “yes” in turn01a18c1b-2e4e-71c1-b2b5-f81a9c0543de. This extends
+only the qualified fresh-bootstrap provider versions. Main owns the existing
+clean task worktree on branch `rs/fresh-bootstrap-devsy-124`, based on released
+main5118a8283d2ecd86854b42f58f22e8fb39a8c2c7. Existing ownership, storage,
+context, replay and partial-data guarantees remain binding. No consumer
+installation/adoption, global/provider setup changes, consumer runtime/database
+work, reset/reseed, deletion or existing environment action is authorized.
+
+Root outcome: the same safe fresh-only operation works on explicitly qualified
+Devsy1.24.0 without downgrade or weakening version/storage/context fences.
+First acceptance: official checksum-verified isolated1.24.0 host and Linux
+agent, version-matched source inspection, and a new synthetic deferral/named-exec/
+host-preparation/source-hook replay probe. The1.19.0 evidence remains valid;
+only changed provider behavior needs new producing evidence. Reuse the original
+plan critique and primitive table because the operation and guarantees are
+unchanged. A newly discovered provider or contract gap returns a concrete
+boundary instead of broadening this batch.
+
+Sequence: qualify exact1.24.0 source/flags/options/markers/context; execute new
+bounded synthetic success/failure/cancel/unknown probes with existing fixture
+invariants; make only evidence-warranted compatibility changes and version
+tests; update owning current guidance and patch artifacts; native checks,
+independent final review and exact-head CI; source-identical merge and patch
+publication; registry integrity/byte proof and completion handoff. Reuse prior
+storage/Git/cache/worker regression coverage and exercise those actual seams
+with the new provider. Every touched fixture ends canonical-stopped with zero
+routes and retained data. Neither settlement nor lost registration/completion
+may rearm initialization.
+
+Terminal: compatible qualified patch publication and owner notification, or a
+precise provider/material-guarantee blocker after independent work. The selected
+global Devsy here remains1.19.0; qualification uses a task-local official1.24.0
+binary and matching verified Linux agent without persistent provider setup changes.
