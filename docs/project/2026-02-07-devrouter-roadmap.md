@@ -14,11 +14,12 @@ is delivered source with explicitly open live acceptance, not the next source fi
 
 Primary-only replacement is merged through
 [PR #171](https://github.com/rschlaefli/devrouter/pull/171), with passing
-merged-main CI; it remains outside published 0.6.3. The next approved product
-work is retained-maintenance source-only feasibility under its existing owner.
-Release, installation and each consumer's runtime acceptance retain their
-separate authority. Repeat replacement and the shared-tooling improvements are
-proposed follow-ups in the acceptance roadmap, not implicit execution scope.
+merged-main CI; it remains outside published 0.6.3. Retained-maintenance source-only
+feasibility reached its reviewed blocker terminal. The next decision is its
+mixed-version, stopped-probe recovery and consumer semantic-probe contract;
+public implementation remains unapproved. Release, installation and each
+consumer's runtime acceptance retain separate authority. Repeat replacement
+and the shared-tooling improvements are proposed follow-ups in the acceptance roadmap, not implicit execution scope.
 
 W2 — [Workspace resource accounting](./2026-08-16-workspace-resource-accounting-roadmap.md)
 was delivered in [PR #30](https://github.com/rschlaefli/devrouter/pull/30),

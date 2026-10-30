@@ -46,10 +46,10 @@ owns that evidence.
 A third consumer needs retained Compose isolation and restoration, which primary
 replacement does not provide. Its separately reviewed
 [maintenance plan](https://github.com/rschlaefli/devrouter/blob/rs/retained-maintenance-plan/docs/project/2026-10-30-retained-maintenance-transition-plan.md)
-now has approval for finite source-only feasibility. The Devrouter owner must
-return executable contract evidence and a reviewed implementation-ready contract,
-or the exact provider/API/compatibility blocker. Public maintenance implementation,
-runtime/data effects and later delivery remain separate gates.
+completed its finite source-only feasibility batch with reviewed evidence and
+explicit compatibility/probe blockers. The proposed selective composition needs
+no demonstrated new engine, but its contract is not implementation-ready. Public
+maintenance implementation, runtime/data effects and later delivery remain gated.
 
 This front section replaces the older current-status table and priority order.
 Historical execution records below remain evidence, not current completion
@@ -69,10 +69,24 @@ The remaining recommendations are recorded here without creating new authority.
 
 | Work | Next acceptance and owner | Authority and boundary |
 | --- | --- | --- |
-| Retained maintenance feasibility | Prove attempt-bound command/descendant cessation through existing exec/helper seams first; then selected-service apply, hook control, session rebinding and old-client/no-replay guards. Devrouter owner. | Source-only batch approved. Return a reviewed contract or exact blocker. A profile alone does not establish the promised network/port isolation. |
+| Retained maintenance contract | Source-only probes establish a candidate selective path, hook replay and released-reader limitations. Resolve mixed-version/global-enumeration policy, restoration after a stopped probe service and the consumer semantic probe. Devrouter owner; consumer owner retains its probe. | Feasibility batch reached its reviewed blocker terminal. Public implementation is not authorized. A profile alone does not establish the promised isolation. |
 | Replacement release preparation | Use the actual future writer version to verify expected older-reader refusal and retained receipts. Disclose the one-attempt-per-environment limit, adoption and downgrade constraints. Devrouter release owner. | Source evidence is complete; named release/publication/installation authority remains necessary. Reuse the unchanged candidate and synthetic proof. |
 | Consumer acceptance | Receiving replacement owner proves supported installed adoption and its own bounded useful-work journey; pilot owner proves its corrected PWA acceptance. | Their approvals, CI exceptions and runtime/data effects stay with their owners. Neither lane is closed by the source merge. |
 | Repeat replacement and shared tooling | Keep a proposed newer-stopped-generation contract for repeat replacement, preserving no-replay and unknown outcomes. Shared routing, result classification, task binding and fixture validation keep their recorded owners. | Proposed follow-ups; no receipt deletion, new supervisor, global routing rewrite or consumer takeover. |
+
+The later focused feasibility review found the candidate contract not ready for
+implementation. A checksum-matched released 0.6.3 admission probe refuses a
+hypothetical newer-writer record after canonical stop and also blocks global
+journal enumeration; no mixed-version/unrelated-workspace availability is proved.
+A separate source-derived marker probe confirms that fresh layers can replay
+provider hooks and skip flags leave onCreate/updateContent eligible. These are
+reasons to retain explicit adoption and hook qualifications, not weaken guards.
+
+The existing safe dependency probe is also absent in consumer source, and a
+canonical stop can stop that context. The
+[maintenance result](https://github.com/rschlaefli/devrouter/blob/rs/retained-maintenance-plan/docs/project/2026-10-30-retained-maintenance-transition-plan.md#focused-review-outcome-and-blocking-constraints)
+records the exact observations and proposed next contract decisions. No public
+maintenance implementation or live qualification follows from this result.
 
 Existing drafts [#163](https://github.com/rschlaefli/devrouter/pull/163),
 [#166](https://github.com/rschlaefli/devrouter/pull/166) and
