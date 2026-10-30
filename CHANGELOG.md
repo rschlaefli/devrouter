@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-10-30
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.6.3.md
+
+### Enhanced
+
+- Explicit fresh managed initialization also supports qualified Devsy 1.24.0
+  with the existing local-provider, context, new-storage and ownership checks.
+  Devsy 1.19.0 remains qualified; other versions still refuse this operation.
+
 ## [0.6.2] - 2026-10-30
 
 ### Agent Adaptation Prompt
