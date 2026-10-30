@@ -271,7 +271,8 @@ qualification-tool owners implement their respective fixes.
 5. **Qualification fixture preflight.** Owner: fixture harnesses, with shared
    orchestration validation for required inputs. Before dispatch, validate the
    exact new checkout/destination, source-path-resolved provider identifier when
-   one is required, and unique database aliases. Before data effects, qualify
+   one is required, the exact generated descriptor and linked-worktree environment,
+   and unique database aliases. Before data effects, qualify
    the complete target database identities; a generic shared-network service
    hostname is insufficient. Negative cases for ambiguous aliases and undefined
    identifiers must refuse before provider mutation or SQL effects. Preserve
@@ -282,3 +283,48 @@ qualification-tool owners implement their respective fixes.
 Completion for these follow-ups requires producing shared-tooling evidence and
 separately reviewed source changes under their owner's authority. A Devrouter
 release, a fallback reviewer or a passing existing CI suite does not close them.
+
+
+## Devsy 1.24.0 qualification checkpoint — release held
+
+Status: compatible source candidate in draft PR169; no merge, publication or
+installation. The conditional release gate remains open because a correctly
+configured provider replacement failed agent acquisition. The next boundary is
+a scoped provider-acquisition diagnosis or qualification under a verified
+provider preparation contract, without changing shared setup in this batch.
+
+- Tested implementation/package revision:bd18e2d91315063092229077d2510716a5d2fdf5,
+  version0.6.3. Native3475 tests pass with13 platform skips; docs, knowledge,
+  Biome, Knip, typecheck, build, package smoke, scoped static checks and packed
+  controller qualification pass. Independent final review inspected all11
+  original paths and necessary provider source with no findings. Candidate
+  CI41034938277 and documentation-head CI41036588463 pass. Later changes are
+  project-status documentation; executable hashes remain equal to this producer.
+- Isolated1.24 host and actual injected Linux agent match official release
+  checksums. Deferral, host preparation, literal named-workspace exec, non-root
+  context equality and original hook replay pass. Fresh product initialization,
+  restricted-role PostgreSQL main/shadow retained values, failure/cancellation,
+  preserving recovery, stop/resume and repeat-initialization refusal pass.
+  Durable attempts remain ready/failed/initializing after final stop; no worker
+  remains. Fresh storage, generated dependency mounts, explicit external cache
+  and exact linked Git-common-directory seams were exercised.
+- Two fixture defects were isolated from product behavior. The first cancellation
+  deadline expired while queued before provider creation; it created no attempt
+  or runtime. A new fixture reached initialization before cancellation. The first
+  linked replacement omitted workspace environment and selected the default
+  overlay; strict stop and recovery refused that mismatched population. Corrected
+  preflight verifies exact provider/path, workspace/Git context and retained
+  source/effective plan fingerprints before the same bounded replacement.
+- The corrected replacement reached provider error
+  `inject agent: [inject] open binary: agent binary not found` after its injection
+  phase. This is producing provider evidence, not a general network/proxy outage
+  diagnosis. Supported `stop --repair` then preserving ensure, actual retained
+  database checks, replay refusal and final stop pass. That recovery does not
+  establish a clean successful provider recreation or resolve agent acquisition.
+  Hold the compatibility release until that remaining boundary is qualified.
+- Fresh final checks account for five exact task fixtures: four registrations are
+  stopped, the early queued fixture is positively absent, all have zero routes
+  and zero running attributed services, and existing data/volume identities are
+  retained. No deletion, shared provider configuration, global installation or
+  consumer operation occurred. Published0.6.2 remains the available release;
+  fresh initialization on1.24.0 remains unreleased and consumer recovery unknown.

@@ -4967,3 +4967,10 @@ checks are recorded once in the active [managed initialization plan](./2026-10-2
 These are primarily shared routing/orchestration gaps. Existing Devrouter lint,
 type, test and package CI checks remain in place. Recording these priorities does
 not authorize shared setup/configuration changes or imply consumer recovery.
+
+
+The Devsy1.24 compatibility candidate remains draft PR169. Its source/native,
+review and initial lifecycle proofs pass, but a corrected provider replacement
+failed agent acquisition. Supported recovery retained data and stopped every
+task runtime. The [qualification checkpoint](./2026-10-29-managed-fresh-bootstrap-plan.md#devsy-1240-qualification-checkpoint--release-held)
+keeps that provider gap open; no0.6.3 release or consumer unblocking is claimed.
