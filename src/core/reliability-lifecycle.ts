@@ -43,10 +43,12 @@ import { assertFreshBootstrapRequest } from "./managed-fresh-bootstrap";
 import { resolveManagedPostStartPlan } from "./managed-post-start";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
 import {
+  captureManagedAppReplacementProof,
   managedStopRouteReferences,
   proveManagedStop,
   recoverManagedStopBaseline,
 } from "./managed-stop-recovery";
+import { findOwnedNetworkClaim } from "./network-claim-lookup";
 import { deriveRecoveryUnit } from "./recovery-budget";
 import { claimLifecycleEffect, installLifecycleEffectClaim } from "./reliability-context";
 import {
@@ -62,15 +64,19 @@ import {
   stepReliability,
 } from "./reliability-model";
 import {
+  type AppReplacementAttempt,
+  advanceAppReplacementAttempt,
   assertCapacityEffect,
   type CapacityControllerIdentity,
   type CapacityExecSteady,
   type CapacityPhaseSettlement,
+  claimAppReplacementAttempt,
   clearStartupWitness,
   createLifecycleCapacityStore,
   type FreshBootstrapAttempt,
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
+  readAppReplacementAttempt,
   readReliabilityOperation,
   updateReliabilityOperation,
 } from "./reliability-operation-store";
@@ -221,6 +227,97 @@ export function preflightRuntimeVariant(
   return variant;
 }
 
+function preflightAppReplacement(
+  identity: ReliabilityIdentity,
+  options: LifecycleWorkerRequest["options"],
+): LifecycleWorkerRequest["replacement"] {
+  if (!options.replaceApp) return undefined;
+  if (identity.provider !== "devsy" || options.repair || options.initializeNew)
+    throw new Error("--replace-app requires managed Devsy without --repair or --initialize-new.");
+  const record = readReliabilityOperation(identity);
+  if (
+    record?.version !== 1 ||
+    record.enrollment ||
+    record.capacity ||
+    capacityPolicyTargets(identity.repoPath) ||
+    record.state.executionPolicy !== "manual" ||
+    record.worker ||
+    record.state.desired !== "stopped-by-user" ||
+    record.state.phase === "stopping" ||
+    !record.state.stopProof.workloadsStopped ||
+    !record.state.stopProof.routesRemoved ||
+    (record.state.operation && !record.state.operation.drained) ||
+    findOwnedNetworkClaim(identity.repoPath) ||
+    readAppReplacementAttempt(identity)
+  )
+    throw new Error(
+      "App replacement requires a proved manual canonical stop without an earlier replacement attempt, enrollment or network allocation.",
+    );
+  const state = readManagedRuntimeState(identity.repoPath, identity.workspace ?? undefined);
+  if (
+    !state ||
+    (options.profile !== undefined && options.profile !== state.profile) ||
+    (options.variant ?? "default") !== (state.variant ?? "default") ||
+    listHostRouteState().some((r) => sameWorkspacePath(r.repoPath, identity.repoPath))
+  )
+    throw new Error(
+      "App replacement requires the retained profile, variant and zero checkout routes.",
+    );
+  const proof = withDevsyMutationLock("Prove stopped app replacement", identity.repoPath, () =>
+    captureManagedAppReplacementProof(state),
+  );
+  if (!isDeepStrictEqual(readReliabilityOperation(identity), record))
+    throw new Error("Stopped replacement generation changed during preflight.");
+  return { stoppedFence: reliabilityFence(record.state), preflightSha256: proof.digest };
+}
+
+export function claimActiveAppReplacement(preflightSha256: string, oldPrimaryId: string): void {
+  const request = activeWorker;
+  if (
+    request?.kind !== "ensure" ||
+    !request.options.replaceApp ||
+    !request.replacement ||
+    request.replacement.preflightSha256 !== preflightSha256
+  )
+    throw new Error("App replacement requires its explicit stopped-generation worker proof.");
+  if (
+    capacityPolicyTargets(request.repoPath) ||
+    findOwnedNetworkClaim(request.repoPath) ||
+    listHostRouteState().some((r) => sameWorkspacePath(r.repoPath, request.repoPath))
+  )
+    throw new Error("App replacement admission or routes changed before dispatch.");
+  claimLifecycleEffect();
+  claimAppReplacementAttempt(request.identity, {
+    operationId: request.operationId,
+    workerId: request.workerId,
+    fence: request.fence,
+    stoppedFence: request.replacement.stoppedFence,
+    oldPrimaryId,
+    preflightSha256,
+  });
+}
+
+export function assertActiveAppReplacement(): void {
+  if (
+    activeWorker?.kind !== "ensure" ||
+    !activeWorker.options.replaceApp ||
+    !activeWorker.replacement
+  )
+    throw new Error("App replacement requires the explicit public stopped-generation request.");
+  claimLifecycleEffect();
+}
+
+export function advanceActiveAppReplacement(
+  stage: AppReplacementAttempt["stage"],
+  newPrimaryId?: string,
+): void {
+  const request = activeWorker;
+  if (request?.kind !== "ensure" || !request.options.replaceApp)
+    throw new Error("Replacement phase requires the explicit ensure worker.");
+  claimLifecycleEffect();
+  advanceAppReplacementAttempt(request.identity, request, stage, newPrimaryId);
+}
+
 /** Persist intent before the controller waits for admission; no worker is launched. */
 export function prepareLifecycleOperation(
   kind: LifecycleWorkerRequest["kind"],
@@ -228,6 +325,7 @@ export function prepareLifecycleOperation(
   options: LifecycleWorkerRequest["options"] = {},
   command?: string[],
 ): LifecycleWorkerRequest {
+  if (options.replaceApp) throw new Error("App replacement requires public manual supervision.");
   repoPath = comparableWorkspacePath(repoPath);
   if (kind === "ensure") {
     const variant = preflightRuntimeVariant(repoPath, options);
@@ -979,6 +1077,9 @@ export async function superviseLifecycle(
     provider: resolveWorkspaceRuntimeOrDefault(repoPath),
   };
   const ids = newLifecycleIds();
+  if (options.replaceApp && kind !== "ensure")
+    throw new Error("App replacement is an ensure intent.");
+  const replacement = preflightAppReplacement(identity, options);
   const copiedOptions = { ...options };
   if (kind === "ensure") assertFreshBootstrapRequest(identity, options);
   const copiedCommand = command ? [...command] : undefined;
@@ -1120,6 +1221,7 @@ export async function superviseLifecycle(
             ...ids,
             fence: { ...expectedFence },
             options: copiedOptions,
+            ...(replacement ? { replacement } : {}),
             ...(copiedCommand ? { command: copiedCommand } : {}),
             ...(retainedExecProof ? { retainedExecProof } : {}),
             admission: {

@@ -116,6 +116,89 @@ function runManagedStopDocker(
   return result.stdout;
 }
 
+export type AppReplacementContainer = {
+  id: string;
+  name: string;
+  image: string;
+  namespaces: { NetworkMode: string; PidMode: string; IpcMode: string };
+  mounts: Array<{ Type: string; Source: string; Destination: string; Name?: string }>;
+};
+
+/** Includes stopped and foreign containers: namespace consumers need not share Compose labels. */
+export function inspectAppReplacementInventory(endpoint: string): AppReplacementContainer[] {
+  const list = () => {
+    const ids = parseDockerLines(
+      runManagedStopDocker(["ps", "--all", "--quiet", "--no-trunc"], endpoint),
+    ).sort();
+    if (ids.length > 1024) throw new Error("App replacement daemon inventory exceeds its bound.");
+    ids.forEach(assertFullContainerId);
+    assertUniqueContainerIds(ids);
+    return ids;
+  };
+  const ids = list();
+  const template =
+    '{"id":{{json .Id}},"name":{{json .Name}},"image":{{json .Image}},"namespaces":{"NetworkMode":{{json .HostConfig.NetworkMode}},"PidMode":{{json .HostConfig.PidMode}},"IpcMode":{{json .HostConfig.IpcMode}}},"mounts":{{json .Mounts}}}';
+  const containers = ids.length
+    ? parseDockerLines(
+        runManagedStopDocker(["inspect", "--format", template, ...ids], endpoint),
+      ).map((line) => {
+        const c: unknown = JSON.parse(line);
+        if (!isRecord(c)) throw new Error("Invalid replacement container inventory.");
+        assertFullContainerId(c.id);
+        if (
+          typeof c.name !== "string" ||
+          !/^\/[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(c.name) ||
+          typeof c.image !== "string" ||
+          !/^sha256:[a-f0-9]{64}$/.test(c.image) ||
+          !isRecord(c.namespaces) ||
+          !["NetworkMode", "PidMode", "IpcMode"].every(
+            (key) => typeof (c.namespaces as Record<string, unknown>)[key] === "string",
+          ) ||
+          !Array.isArray(c.mounts) ||
+          c.mounts.some(
+            (m: unknown) =>
+              !isRecord(m) ||
+              typeof m.Type !== "string" ||
+              typeof m.Source !== "string" ||
+              typeof m.Destination !== "string" ||
+              (m.Type === "volume" && (typeof m.Name !== "string" || !m.Name)),
+          )
+        )
+          throw new Error("Incomplete app replacement inventory.");
+        return c as AppReplacementContainer;
+      })
+    : [];
+  if (
+    JSON.stringify(ids) !== JSON.stringify(containers.map((c) => c.id).sort()) ||
+    JSON.stringify(ids) !== JSON.stringify(list()) ||
+    new Set(containers.map((c) => c.name)).size !== containers.length
+  )
+    throw new Error("App replacement daemon inventory changed during inspection.");
+  return containers;
+}
+
+export function assertNoAppNamespaceConsumers(
+  containers: AppReplacementContainer[],
+  primaryId: string,
+): void {
+  const primary = containers.find((c) => c.id === primaryId);
+  if (!primary) throw new Error("App replacement lost the exact primary container.");
+  for (const c of containers)
+    for (const mode of Object.values(c.namespaces)) {
+      if (!mode.startsWith("container:")) continue;
+      const reference = mode.slice("container:".length).replace(/^\//, "");
+      const matches = containers.filter(
+        (candidate) =>
+          candidate.name.slice(1) === reference ||
+          (/^[a-f0-9]+$/.test(reference) && candidate.id.startsWith(reference)),
+      );
+      if (matches.length !== 1 || c.id === primaryId || matches[0].id === primaryId)
+        throw new Error(
+          "App replacement refuses unresolved or primary-dependent network, PID or IPC namespaces.",
+        );
+    }
+}
+
 function listManagedStopContainerIds(composeProject: string, endpoint?: string): string[] {
   const stdout = runManagedStopDocker(
     [

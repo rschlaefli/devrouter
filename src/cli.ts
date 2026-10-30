@@ -191,6 +191,7 @@ program
   .option("--variant <name>", "Select a declared managed runtime variant")
   .option("--repair", "Repair a degraded managed runtime from its recorded profile")
   .option("--initialize-new", "Initialize one fresh disposable managed environment explicitly")
+  .option("--replace-app", "Replace one proved stopped managed app; discard its writable layer")
   .option("--open", "Open HTTP routes after readiness succeeds")
   .option("--json", "Output JSON")
   .action(
@@ -200,6 +201,7 @@ program
         variant?: string;
         repair?: boolean;
         initializeNew?: boolean;
+        replaceApp?: boolean;
         open?: boolean;
         json?: boolean;
       }>();
@@ -210,6 +212,7 @@ program
         variant: options.variant,
         repair: options.repair,
         initializeNew: options.initializeNew,
+        replaceApp: options.replaceApp,
         open: Boolean(options.open),
         json: Boolean(options.json),
       });
@@ -752,6 +755,7 @@ workspaceCommand
   .option("--variant <name>", "Select a declared managed runtime variant")
   .option("--repair", "Repair a degraded managed runtime from its recorded profile")
   .option("--initialize-new", "Initialize one fresh disposable managed environment explicitly")
+  .option("--replace-app", "Replace one proved stopped managed app; discard its writable layer")
   .option("--open", "Open HTTP routes after readiness succeeds")
   .option("--json", "Output JSON")
   .action(
@@ -762,6 +766,7 @@ workspaceCommand
           variant?: string;
           repair?: boolean;
           initializeNew?: boolean;
+          replaceApp?: boolean;
           open?: boolean;
           json?: boolean;
         }>();
@@ -772,6 +777,7 @@ workspaceCommand
           variant: options.variant,
           repair: options.repair,
           initializeNew: options.initializeNew,
+          replaceApp: options.replaceApp,
           open: Boolean(options.open),
           json: Boolean(options.json),
         });

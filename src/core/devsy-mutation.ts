@@ -59,6 +59,11 @@ export type DevsyStartOptions = {
       afterStart: (resumeSourceHooks: () => Promise<void>) => Promise<void>;
     };
   };
+  appReplacement?: {
+    binding: NetworkProviderBinding;
+    beforeDispatch: () => void;
+    afterStart: () => void;
+  };
 };
 
 export class DevsyStartPostconditionError extends Error {}
@@ -324,6 +329,11 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
     throw new Error(`${error.message}. ${repair}`);
   }
   return withMutationLockAsync(activity, options.repoPath, async () => {
+    if (
+      options.appReplacement &&
+      (!options.recreate || options.prepareNetwork || options.freshBootstrap)
+    )
+      throw new Error("App replacement requires one isolated explicit recreation intent.");
     let devsyId = assertDevsyTarget(options.devsyId, options.repoPath);
     if (devsyId && options.recreate) {
       const attached = listDevsyWorkspaces();
@@ -344,7 +354,7 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
     if (network)
       assertNetworkProviderBinding(network.binding, network.evidence, network.firstAllocation);
     const fresh = options.freshBootstrap?.prepare(devsyId as string, network?.binding);
-    const binding = network?.binding ?? fresh?.binding;
+    const binding = network?.binding ?? fresh?.binding ?? options.appReplacement?.binding;
     // Devsy derives the workspace id from the folder name on first use; the
     // explicit --id keeps linked-worktree identities stable across restarts.
     const args = ["workspace", "up", options.repoPath];
@@ -385,6 +395,7 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
     }
 
     network?.beforeDispatch?.();
+    options.appReplacement?.beforeDispatch();
     const result = await runDevsyUp(
       fresh ? [...args, "--skip-post-create", "--skip-post-start", "--skip-post-attach"] : args,
       env,
@@ -423,6 +434,7 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
           `Devsy did not attach '${options.repoPath}' as '${devsyId}' after startup.`,
         );
       }
+      options.appReplacement?.afterStart();
       if (fresh) {
         const exactId = devsyId;
         await fresh.afterStart(async () => {

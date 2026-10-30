@@ -8,10 +8,12 @@ import { type ManagedRuntimeState, writeManagedRuntimeState } from "../managed-r
 import { reliabilityFence } from "../reliability-contract";
 import { stepReliability } from "../reliability-model";
 import {
+  advanceAppReplacementAttempt,
   assertCapacityEffect,
   type CapacityExecSteady,
   type CapacityPhaseSettlement,
   type CapacityStartupWitness,
+  claimAppReplacementAttempt,
   clearStartupWitness,
   createLifecycleCapacityStore,
   enrollStoppedLifecycle,
@@ -22,6 +24,7 @@ import {
   type ReliabilityIdentity,
   type ReliabilityOperationRecord,
   type ReliabilityPreparationReceipt,
+  readAppReplacementAttempt,
   readReliabilityOperation,
   reliabilityOperationPath,
   setReliabilityHumanPin,
@@ -58,6 +61,139 @@ beforeEach(() => checkouts.push(identity.repoPath));
 afterAll(() => {
   fs.rmSync(fixture.root, { recursive: true, force: true });
   for (const checkout of checkouts) fs.rmSync(checkout, { recursive: true, force: true });
+});
+
+describe("durable app replacement authority", () => {
+  function active(id = "replace") {
+    const stoppedFence = updateReliabilityOperation(identity, (r) => reliabilityFence(r.state));
+    const events = [
+      {
+        type: "operation-request",
+        kind: "ensure",
+        key: id,
+        operationId: id,
+        profile: "full",
+        runtimeRunning: false,
+        consumer: { id: "manual", requiredCapabilities: [] as string[], pinned: false },
+      },
+      { type: "dispatch" },
+      { type: "dispatch-persisted", operationId: id },
+      { type: "launched", operationId: id },
+    ] as const;
+    for (const event of events)
+      updateReliabilityOperation(identity, (r) => {
+        const result = stepReliability(
+          r.state,
+          { ...reliabilityFence(r.state), ...event },
+          id === "replace" ? 100 : 300,
+        );
+        expect(result.outcome).toBe("accepted");
+        r.state = result.state;
+      });
+    return updateReliabilityOperation(identity, (r) => {
+      r.worker = { id: "worker", operationId: id, pid: 123, birth: "proc:123" };
+      return {
+        operationId: id,
+        workerId: "worker",
+        fence: reliabilityFence(r.state),
+        stoppedFence,
+        oldPrimaryId: "a".repeat(64),
+        preflightSha256: "b".repeat(64),
+      };
+    });
+  }
+
+  it("round-trips outside journal enumeration and never rearms after stop or rollover", () => {
+    const input = active();
+    const receipt = claimAppReplacementAttempt(identity, input);
+    expect(readAppReplacementAttempt(identity)).toEqual(receipt);
+    expect(listReliabilityOperations()).toHaveLength(1);
+    expect(() => claimAppReplacementAttempt(identity, input)).toThrow(/already claimed/);
+    advanceAppReplacementAttempt(identity, input, "dispatched");
+    advanceAppReplacementAttempt(identity, input, "replaced", "c".repeat(64));
+    advanceAppReplacementAttempt(identity, input, "ready");
+    updateReliabilityOperation(identity, (r) => {
+      r.state = stepReliability(r.state, { ...reliabilityFence(r.state), type: "stop" }, 200).state;
+      r.state.operationHistory = [];
+      r.state.operation = null;
+      r.worker = null;
+      r.state.phase = "idle";
+      r.state.stopProof = { workloadsStopped: true, routesRemoved: true };
+    });
+    expect(readAppReplacementAttempt(identity)).toMatchObject({
+      stage: "ready",
+      oldPrimaryId: input.oldPrimaryId,
+      newPrimaryId: "c".repeat(64),
+    });
+    expect(() => claimAppReplacementAttempt(identity, active("new-request"))).toThrow(
+      /already claimed/,
+    );
+  });
+
+  it("refuses stale workers, changed fences and non-monotone phases", () => {
+    const input = active();
+    expect(() => claimAppReplacementAttempt(identity, { ...input, workerId: "other" })).toThrow();
+    expect(readAppReplacementAttempt(identity)).toBeUndefined();
+    claimAppReplacementAttempt(identity, input);
+    expect(() => advanceAppReplacementAttempt(identity, input, "ready")).toThrow();
+    expect(() =>
+      advanceAppReplacementAttempt(
+        identity,
+        { ...input, fence: { ...input.fence, intentRevision: 99 } },
+        "dispatched",
+      ),
+    ).toThrow();
+    advanceAppReplacementAttempt(identity, input, "failed");
+    expect(() => advanceAppReplacementAttempt(identity, input, "dispatched")).toThrow();
+  });
+
+  it("retains a no-replay claim when its journal acknowledgment fails", () => {
+    const input = active();
+    const write = vi.mocked(writeFileAtomically);
+    write
+      .mockImplementationOnce((file, bytes) => {
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, bytes, { mode: 0o600 });
+      })
+      .mockImplementationOnce(() => {
+        throw new Error("journal not acknowledged");
+      });
+    expect(() => claimAppReplacementAttempt(identity, input)).toThrow();
+    expect(readAppReplacementAttempt(identity)?.stage).toBe("claimed");
+    expect(() => claimAppReplacementAttempt(identity, input)).toThrow();
+  });
+
+  it.each([
+    "malformed",
+    "extra-field",
+    "identity",
+    "public-file",
+    "symlink",
+    "symlink-directory",
+  ])("refuses %s replacement evidence without treating it as absent", (corruption) => {
+    const input = active();
+    claimAppReplacementAttempt(identity, input);
+    const directory = path.join(fixture.root, "replacement-attempts");
+    const file = path.join(directory, fs.readdirSync(directory)[0]);
+    if (corruption === "malformed") fs.writeFileSync(file, "{");
+    if (corruption === "public-file") fs.chmodSync(file, 0o644);
+    if (corruption === "extra-field" || corruption === "identity") {
+      const value = JSON.parse(fs.readFileSync(file, "utf8"));
+      if (corruption === "identity") value.identity.repoPath = "/foreign";
+      else value.rearm = true;
+      fs.writeFileSync(file, JSON.stringify(value));
+    }
+    if (corruption === "symlink") {
+      fs.renameSync(file, `${file}.saved`);
+      fs.symlinkSync(`${file}.saved`, file);
+    }
+    if (corruption === "symlink-directory") {
+      fs.renameSync(directory, `${directory}.saved`);
+      fs.symlinkSync(`${directory}.saved`, directory);
+    }
+    expect(() => readAppReplacementAttempt(identity)).toThrow();
+    expect(() => claimAppReplacementAttempt(identity, input)).toThrow();
+  });
 });
 
 describe("reliability record version skew", () => {

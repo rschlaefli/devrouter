@@ -710,6 +710,38 @@ verification path, initialization mode and reset/seed callback can have differen
 data effects; authorization for one does not cover the others. Do not synthesize
 bootstrap markers or rerun initialization to clear a diagnostic refusal.
 
+### Explicit stopped application replacement
+
+After a canonical `devrouter stop <checkout>` proves stopped workloads and zero
+routes, `devrouter ensure <checkout> --replace-app` replaces the primary
+application container and discards its writable layer. Named volumes, bind
+mounts and dependency containers must retain their exact identities. Repository
+hooks and entrypoints must already have a verified preserving contract;
+replacement can rerun provider hooks, including `postCreateCommand`.
+
+This operation requires manual managed Compose on Devsy 1.24.0 with a successful
+retained stop baseline, committed unchanged source/hooks and the same profile,
+variant and generated configuration. Supply the retained profile/variant when
+it differs from the ordinary defaults. A retained dependency must remain as
+recovery evidence for released clients. Anonymous or unattributed primary
+volumes, daemon-wide network/PID/IPC namespace consumers, allocated-network
+claims and capacity-targeted or retained managed enrollment refuse. Repair and
+fresh initialization cannot combine with replacement.
+
+One durable attempt is retained per exact checkout under
+`~/.config/devrouter/replacement-attempts/`. Cancellation, failure, stop and
+history rollover never rearm it. Before dispatch, the existing managed baseline
+is marked degraded so released guarded recovery still requires an exact
+population. A proved new primary receives its own stop baseline before
+application checks. Missing old resources do not authorize another creation.
+
+On failure, retain storage and evidence. Use canonical `stop`, or `stop --repair`
+when the unchanged replacement population requires re-proof. A refusal leaves
+cessation unknown. Subsequent preserving ensure requires a complete proved
+population; never clear the attempt, delete volumes or use a raw provider
+command to retry replacement. This operation does not apply changed Compose
+overlays or replace data services.
+
 ## 5. Bring up routing
 
 For a managed Devsy workspace prepared through a local Unix Docker endpoint

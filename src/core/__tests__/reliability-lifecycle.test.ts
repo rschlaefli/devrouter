@@ -30,6 +30,7 @@ const fixture = vi.hoisted(() => ({
   readManagedRuntimeState: vi.fn(),
   proveRetainedManagedStop: vi.fn(),
   recoverManagedStopBaseline: vi.fn(),
+  captureManagedAppReplacementProof: vi.fn(),
   absent: false,
   assertRoutesRemoved: vi.fn(),
   withWorkspaceLifecycleLock: vi.fn(),
@@ -98,6 +99,7 @@ vi.mock("../traefik-route-health", () => ({
   assertTraefikRoutesRemoved: fixture.assertRoutesRemoved,
 }));
 vi.mock("../managed-stop-recovery", () => ({
+  captureManagedAppReplacementProof: fixture.captureManagedAppReplacementProof,
   recoverManagedStopBaseline: fixture.recoverManagedStopBaseline,
   managedStopRouteReferences: () => [],
   proveManagedStop: (...args: unknown[]) => ({
@@ -464,6 +466,52 @@ beforeEach(() => {
   fixture.withWorkspaceLifecycleLock.mockImplementation(
     async (_repoPath: string, operation: () => Promise<unknown>) => operation(),
   );
+});
+
+it("transports the exact stopped replacement proof without adding journal fields", async () => {
+  const { lifecycle, store, contract } = await loadLifecycleModules();
+  const repoPath = newCheckout();
+  const identity: ReliabilityIdentity = { repoPath, workspace: null, provider: "devsy" };
+  fixture.readCapacityPolicy.mockReturnValue(undefined);
+  store.updateReliabilityOperation(identity, (r) => {
+    r.state.desired = "stopped-by-user";
+    r.state.stopProof = { workloadsStopped: true, routesRemoved: true };
+  });
+  const before = store.readReliabilityOperation(identity)!;
+  fixture.readManagedRuntimeState.mockReturnValue({ repoPath, profile: "full", status: "ready" });
+  fixture.captureManagedAppReplacementProof.mockReturnValue({ digest: "f".repeat(64) });
+  await lifecycle.superviseLifecycle("ensure", repoPath, { replaceApp: true });
+  expect(fixture.runLifecycleWorker.mock.calls[0][0]).toMatchObject({
+    options: { replaceApp: true },
+    replacement: {
+      stoppedFence: contract.reliabilityFence(before.state),
+      preflightSha256: "f".repeat(64),
+    },
+  });
+  expect(store.readReliabilityOperation(identity)).toEqual(before);
+});
+
+it.each([
+  { repair: true },
+  { initializeNew: true },
+  { profile: "other" },
+  { variant: "other" },
+])("refuses incompatible replacement selectors before dispatch: %j", async (options) => {
+  const { lifecycle, store } = await loadLifecycleModules();
+  const repoPath = newCheckout();
+  const identity: ReliabilityIdentity = { repoPath, workspace: null, provider: "devsy" };
+  fixture.readCapacityPolicy.mockReturnValue(undefined);
+  store.updateReliabilityOperation(identity, (r) => {
+    r.state.desired = "stopped-by-user";
+    r.state.stopProof = { workloadsStopped: true, routesRemoved: true };
+  });
+  const before = store.readReliabilityOperation(identity)!;
+  fixture.readManagedRuntimeState.mockReturnValue({ repoPath, profile: "full", status: "ready" });
+  await expect(
+    lifecycle.superviseLifecycle("ensure", repoPath, { ...options, replaceApp: true }),
+  ).rejects.toThrow();
+  expect(fixture.runLifecycleWorker).not.toHaveBeenCalled();
+  expect(store.readReliabilityOperation(identity)).toEqual(before);
 });
 
 it("persists an operation reference without dispatch and lets stop supersede it", async () => {

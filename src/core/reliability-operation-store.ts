@@ -126,6 +126,186 @@ export type FreshBootstrapAttempt = {
   };
 };
 
+export type AppReplacementAttempt = {
+  version: 1;
+  identity: ReliabilityIdentity;
+  operationId: string;
+  workerId: string;
+  fence: ReliabilityFence;
+  stoppedFence: ReliabilityFence;
+  oldPrimaryId: string;
+  preflightSha256: string;
+  stage: "claimed" | "dispatched" | "replaced" | "ready" | "failed";
+  newPrimaryId?: string;
+};
+
+function appReplacementPath(identity: ReliabilityIdentity): string {
+  const directory = path.join(DEVROUTER_HOME, "replacement-attempts");
+  if (fs.existsSync(directory)) {
+    const stat = fs.lstatSync(directory);
+    if (
+      !stat.isDirectory() ||
+      stat.isSymbolicLink() ||
+      stat.uid !== process.getuid?.() ||
+      (stat.mode & 0o077) !== 0
+    )
+      throw new Error("App replacement directory must be private and not symlinked.");
+  }
+  return path.join(directory, `${identityKey(identity)}.json`);
+}
+
+/** Kept outside journal enumeration so released readers retain their strict schema. */
+export function readAppReplacementAttempt(
+  identity: ReliabilityIdentity,
+): AppReplacementAttempt | undefined {
+  const value = readBoundedPrivateJson(appReplacementPath(identity), "App replacement attempt");
+  if (value === undefined) return undefined;
+  return validateAppReplacementAttempt(value, identity);
+}
+
+function validateAppReplacementAttempt(
+  value: unknown,
+  identity: ReliabilityIdentity,
+): AppReplacementAttempt {
+  const attempt = value as AppReplacementAttempt;
+  keys(attempt, [
+    "version",
+    "identity",
+    "operationId",
+    "workerId",
+    "fence",
+    "stoppedFence",
+    "oldPrimaryId",
+    "preflightSha256",
+    "stage",
+    "newPrimaryId",
+  ]);
+  exactKeys(
+    attempt.identity,
+    ["repoPath", "workspace", "provider"],
+    "Invalid replacement identity.",
+  );
+  identityKey(attempt.identity);
+  for (const fence of [attempt.fence, attempt.stoppedFence]) {
+    exactKeys(
+      fence,
+      ["environmentId", "intentRevision", "runtimeGeneration", "controllerEpoch"],
+      "Invalid replacement fence.",
+    );
+    if (
+      !isReliabilityId(fence.environmentId) ||
+      ![fence.intentRevision, fence.runtimeGeneration, fence.controllerEpoch].every(
+        isReliabilityCounter,
+      )
+    )
+      throw new Error("Invalid replacement fence.");
+  }
+  if (
+    attempt.version !== 1 ||
+    !isDeepStrictEqual(attempt.identity, identity) ||
+    !isReliabilityId(attempt.operationId) ||
+    !isReliabilityId(attempt.workerId) ||
+    !/^[a-f0-9]{64}$/.test(attempt.oldPrimaryId) ||
+    !/^[a-f0-9]{64}$/.test(attempt.preflightSha256) ||
+    !["claimed", "dispatched", "replaced", "ready", "failed"].includes(attempt.stage) ||
+    attempt.fence.environmentId !== attempt.stoppedFence.environmentId ||
+    attempt.fence.runtimeGeneration !== attempt.stoppedFence.runtimeGeneration ||
+    attempt.fence.controllerEpoch !== attempt.stoppedFence.controllerEpoch ||
+    attempt.fence.intentRevision !== attempt.stoppedFence.intentRevision + 1 ||
+    (attempt.newPrimaryId !== undefined &&
+      (!/^[a-f0-9]{64}$/.test(attempt.newPrimaryId) ||
+        attempt.newPrimaryId === attempt.oldPrimaryId)) ||
+    (["claimed", "dispatched"].includes(attempt.stage) && attempt.newPrimaryId !== undefined) ||
+    (["replaced", "ready"].includes(attempt.stage) && !attempt.newPrimaryId)
+  )
+    throw new Error("Invalid app replacement attempt.");
+  return attempt;
+}
+
+type AppReplacementAuthority = Pick<AppReplacementAttempt, "operationId" | "workerId" | "fence">;
+
+function assertAppReplacementAuthority(
+  record: ReliabilityOperationRecord,
+  authority: AppReplacementAuthority,
+): void {
+  if (
+    record.version !== 1 ||
+    record.enrollment ||
+    record.capacity ||
+    record.state.executionPolicy !== "manual" ||
+    record.worker?.id !== authority.workerId ||
+    record.worker.operationId !== authority.operationId ||
+    record.state.operation?.id !== authority.operationId ||
+    record.state.operation.kind !== "ensure" ||
+    record.state.operation.status !== "RUNNING" ||
+    !isDeepStrictEqual(reliabilityFence(record.state), authority.fence)
+  )
+    throw new Error("App replacement requires the current manual ensure worker.");
+}
+
+/** One durable claim per exact environment; settlement and new requests never rearm it. */
+export function claimAppReplacementAttempt(
+  identity: ReliabilityIdentity,
+  input: Omit<AppReplacementAttempt, "version" | "identity" | "stage" | "newPrimaryId">,
+): AppReplacementAttempt {
+  return updateReliabilityOperation(identity, (record) => {
+    assertAppReplacementAuthority(record, input);
+    if (readAppReplacementAttempt(identity))
+      throw new Error("An app replacement was already claimed; replacement was not replayed.");
+    const attempt: AppReplacementAttempt = {
+      ...input,
+      version: 1,
+      identity: { ...identity },
+      stage: "claimed",
+    };
+    validateAppReplacementAttempt(attempt, identity);
+    fs.mkdirSync(path.join(DEVROUTER_HOME, "replacement-attempts"), {
+      recursive: true,
+      mode: 0o700,
+    });
+    writeFileAtomically(appReplacementPath(identity), `${JSON.stringify(attempt)}\n`);
+    return readAppReplacementAttempt(identity) as AppReplacementAttempt;
+  });
+}
+
+export function advanceAppReplacementAttempt(
+  identity: ReliabilityIdentity,
+  authority: AppReplacementAuthority,
+  stage: AppReplacementAttempt["stage"],
+  newPrimaryId?: string,
+): void {
+  updateReliabilityOperation(identity, (record) => {
+    assertAppReplacementAuthority(record, authority);
+    const attempt = readAppReplacementAttempt(identity);
+    const next: Record<AppReplacementAttempt["stage"], string[]> = {
+      claimed: ["dispatched", "failed"],
+      dispatched: ["replaced", "failed"],
+      replaced: ["ready", "failed"],
+      ready: [],
+      failed: [],
+    };
+    if (
+      !attempt ||
+      attempt.operationId !== authority.operationId ||
+      attempt.workerId !== authority.workerId ||
+      !isDeepStrictEqual(attempt.fence, authority.fence) ||
+      !next[attempt.stage].includes(stage) ||
+      (newPrimaryId !== undefined && (stage !== "replaced" || attempt.newPrimaryId))
+    )
+      throw new Error("App replacement authority changed or cannot be rearmed.");
+    const updated = { ...attempt, stage, ...(newPrimaryId ? { newPrimaryId } : {}) };
+    if (
+      stage === "replaced" &&
+      (!newPrimaryId ||
+        !/^[a-f0-9]{64}$/.test(newPrimaryId) ||
+        newPrimaryId === attempt.oldPrimaryId)
+    )
+      throw new Error("Replacement requires a newly proved primary container.");
+    validateAppReplacementAttempt(updated, identity);
+    writeFileAtomically(appReplacementPath(identity), `${JSON.stringify(updated)}\n`);
+  });
+}
+
 export type ReliabilityOperationRecord = {
   version: 1 | 2;
   identity: ReliabilityIdentity;
