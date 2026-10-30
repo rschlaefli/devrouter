@@ -205,3 +205,21 @@ Terminal: compatible qualified patch publication and owner notification, or a
 precise provider/material-guarantee blocker after independent work. The selected
 global Devsy here remains1.19.0; qualification uses a task-local official1.24.0
 binary and matching verified Linux agent without persistent provider setup changes.
+
+
+Qualification progress: released 0.6.2 is main5118a828; its completed CI,
+review, package and stopped-fixture evidence remain valid for the original
+1.19.0 contract. The isolated 1.24.0 public-provider probe passed on a new
+1-CPU/512-MiB fixture: host preparation survives skip flags, literal argv
+remains literal, UID/workspace/Node/pnpm/PATH/declared remote environment match
+source preserving hooks, initialization runs once and later ordinary up runs
+post-create/post-start once. Canonical stop proves stopped provider, zero
+routes and zero running attributed containers, with data retained. Official
+source ref1f47cd185bd134b45cdce12b947f6c601d76d329 and verified Darwin/Linux
+release assets underpin the probe. Native focused checks pass38 tests.
+
+The compatibility candidate admits only exact1.19.0 and1.24.0; neighboring
+untested versions still refuse. No knowledge concept changes: this expands
+one explicitly qualified version without changing lifecycle, context, storage
+or ownership invariants. Real product failure/cancel/unknown, linked storage,
+final native/review/CI and publication evidence remain pending.

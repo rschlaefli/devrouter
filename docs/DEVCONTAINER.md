@@ -503,7 +503,7 @@ repository owns database identity, emptiness, schema and seed checks. Its
 ordinary hooks must preserve existing data, including after container replacement.
 The selected profile must mount every declared data-volume and shared-cache key.
 
-This operation requires Devsy 1.19.0 with the qualified local Docker provider,
+This operation requires Devsy 1.19.0 or 1.24.0 with the qualified local Docker provider,
 the default `loginInteractiveShell` environment probe, and no `remoteEnv.PATH`,
 declared secrets, features, `onCreateCommand` or `updateContentCommand`. A
 declared post-start hook requires `waitFor: postStartCommand`. Capacity-managed

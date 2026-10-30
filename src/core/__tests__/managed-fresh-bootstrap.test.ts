@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManagedDevcontainerPlan } from "../devcontainer-profile";
 import {
   assertFreshBootstrapRequest,
+  createFreshBootstrap,
   verifyFreshBootstrapMounts,
   verifyFreshVolume,
 } from "../managed-fresh-bootstrap";
@@ -15,6 +16,10 @@ const evidence = vi.hoisted(() => ({
   retained: undefined as unknown,
   registration: undefined as unknown,
   source: {} as Record<string, unknown>,
+  providerVersion: "1.19.0",
+}));
+vi.mock("../devsy-agent", () => ({
+  requireReadyDevsyAgent: () => ({ version: evidence.providerVersion }),
 }));
 vi.mock("../reliability-operation-store", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../reliability-operation-store")>()),
@@ -53,10 +58,35 @@ beforeEach(() => {
   evidence.retained = undefined;
   evidence.registration = undefined;
   evidence.source = {};
+  evidence.providerVersion = "1.19.0";
 });
 
 describe("fresh initialization admission", () => {
   const identity = { repoPath: "/synthetic", workspace: null, provider: "devsy" as const };
+  it.each([
+    "1.19.0",
+    "1.24.0",
+    "1.23.0",
+    "1.24.1",
+    "1.25.0",
+  ])("admits only explicitly qualified provider versions: %s", (version) => {
+    evidence.providerVersion = version;
+    const reachedPlan = new Error("synthetic plan boundary");
+    const plan = vi.fn(() => {
+      throw reachedPlan;
+    });
+    const bootstrap = createFreshBootstrap({
+      identity,
+      plan,
+      profile: "default",
+      variant: "default",
+      apps: [],
+      processes: [],
+      onCaptured: vi.fn(),
+    });
+    expect(() => bootstrap.prepare("synthetic")).toThrow();
+    expect(plan).toHaveBeenCalledTimes(["1.19.0", "1.24.0"].includes(version) ? 1 : 0);
+  });
   it("admits an explicitly requested fresh context and leaves preserving startup alone", () => {
     expect(() => assertFreshBootstrapRequest(identity, { initializeNew: true })).not.toThrow();
     evidence.attempt = { stage: "failed" };
