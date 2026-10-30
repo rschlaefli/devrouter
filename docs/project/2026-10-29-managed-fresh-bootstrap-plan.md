@@ -144,3 +144,25 @@ six finding dispositions remain the detailed contract and reusable plan critique
 - The native task-binding command cannot resolve a plan inside the task
   worktree beneath this primary checkout. Authority is recovered from the actual
   human instruction; no hook or client configuration was changed.
+
+- Candidate package: [draft PR #168](https://github.com/rschlaefli/devrouter/pull/168).
+  Initial exact-head CI passed. The later failure-retention correction and patch
+  metadata require final-head CI. Substantive source/tests are about 1,400 lines;
+  the single package follows one startup operation across existing transports.
+- Product fixture proves initialization once before preserving hooks, generated
+  dependency mounts, matching execution context, actual PostgreSQL parent/child
+  values in both synthetic databases, repeat-request refusal and stop/resume.
+  Its canonical final stop proves stopped provider and zero exact routes. An
+  earlier fixture rejected ambiguous service DNS before initialization; it also
+  ends stopped. No consumer acceptance or data operation is inferred.
+- The initial failure exposed pre-helper process rollback. A focused correction
+  retains the already-proven degraded baseline without additional resource or
+  process mutations; its startup regression passes. Provider configuration is
+  revalidated again immediately before each initialization/replay boundary.
+- Simplifier returned DONE with no net preserving simplification. The internal
+  source path is already canonicalized by workspaceEnsure, disposing its path
+  spelling handoff. The final reviewer will cover the subsequent correction.
+- Native suite: 3,470 passing tests and 13 platform skips; 177 focused tests pass
+  after the final provider revalidation. Typecheck, docs/knowledge and packed
+  0.6.2 smoke pass. Exact final-artifact qualification and integrated review remain
+  pending; no release has occurred.
