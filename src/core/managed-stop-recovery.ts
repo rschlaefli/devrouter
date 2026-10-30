@@ -1,12 +1,21 @@
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import {
   assertManagedContainerConfigUnchanged,
+  inspectManagedDevcontainerConfig,
+  inspectManagedDevcontainerGeneratedConfig,
   type ManagedDevcontainerPlan,
+  managedComposeEnvironment,
 } from "./devcontainer-profile";
 import {
+  type AppReplacementContainer,
   assertManagedStopContainersAbsent,
+  assertNoAppNamespaceConsumers,
+  inspectAppReplacementInventory,
   inspectManagedStopContainers,
   inspectManagedStopDaemon,
   inspectManagedStopRunnerId,
@@ -16,16 +25,21 @@ import {
   stopPinnedManagedContainer,
 } from "./devpod-environment";
 import { listDevpodWorkspacesRaw } from "./devpod-registry";
+import { requireReadyDevsyAgent } from "./devsy-agent";
 import { proveLocalDockerSelection } from "./devsy-exec-proof";
 import { inspectDevsyWorkspaceOwnership, listDevsyWorkspaces } from "./devsy-workspaces";
 import { proveManagedComposePopulation } from "./managed-compose-population";
+import { resolveManagedPostStartPlan } from "./managed-post-start";
 import {
   type ManagedRuntimeState,
   readManagedRuntimeState,
   writeManagedRuntimeState,
 } from "./managed-runtime-state";
 import { type ManagedStopBaseline, validateManagedStopBaseline } from "./managed-stop-baseline";
+import type { NetworkProviderBinding } from "./network-provider-binding";
+import { inspectNetworkProviderBinding } from "./network-provider-inspect";
 import { claimLifecycleEffect } from "./reliability-context";
+import { loadRuntimeConfig } from "./repo-config";
 import { isLinkedWorktree, resolveWorktreeWorkspace, sameWorkspacePath } from "./workspace";
 import {
   inspectWorkspaceOwnership,
@@ -364,6 +378,261 @@ export function proveRetainedManagedStop(state: ManagedRuntimeState) {
     throw new Error("Retained stop generation changed during inspection.");
   }
   return result;
+}
+
+export type ManagedAppReplacementProof = {
+  state: ManagedRuntimeState;
+  plan: ManagedDevcontainerPlan;
+  primary: AppReplacementContainer;
+  binding: NetworkProviderBinding;
+  sourceSha256: string;
+  digest: string;
+};
+
+function replacementSourceDigest(
+  state: ManagedRuntimeState,
+  plan: ManagedDevcontainerPlan,
+): string {
+  const git = (args: string[]) => {
+    const result = spawnSync("git", ["-C", state.repoPath, ...args], {
+      encoding: "utf8",
+      timeout: 5_000,
+      maxBuffer: 1024 * 1024,
+    });
+    if (result.status !== 0 || result.error)
+      throw new Error("Replacement cannot freeze the source checkout.");
+    return result.stdout;
+  };
+  if (
+    git(["status", "--porcelain", "--untracked-files=no"]).trim() ||
+    git([
+      "ls-files",
+      "--others",
+      "--exclude-standard",
+      "--",
+      ".devcontainer",
+      ".devrouter.yml",
+    ]).trim()
+  )
+    throw new Error("Replacement requires committed, unchanged managed source and hooks.");
+  const adapter = resolveManagedPostStartPlan(state.repoPath);
+  if (adapter.kind !== "runtime")
+    throw new Error("Replacement requires a preserving managed adapter.");
+  const files = [
+    path.join(state.repoPath, ".devrouter.yml"),
+    plan.sourcePath,
+    ...plan.composeFiles,
+  ];
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        git(["rev-parse", "HEAD"]).trim(),
+        adapter.adapterSha256,
+        ...files.map((file) => [
+          file,
+          createHash("sha256").update(fs.readFileSync(file)).digest("hex"),
+        ]),
+      ]),
+    )
+    .digest("hex");
+}
+
+/** Read-only proof, repeated under the provider lock immediately before the one dispatch. */
+export function captureManagedAppReplacementProof(
+  state: ManagedRuntimeState,
+): ManagedAppReplacementProof {
+  if (state.status !== "ready" || requireReadyDevsyAgent().version !== "1.24.0")
+    throw new Error("App replacement requires a successful retained generation and Devsy 1.24.0.");
+  const baseline = validateManagedStopBaseline(state.stopBaseline, state);
+  if (baseline.sourceContainer)
+    throw new Error("Replacement refuses a container-sourced provider.");
+  const runtime = loadRuntimeConfig(state.repoPath, state.workspace ?? "", state.profile);
+  if (!runtime.config.managedRuntime || runtime.config.managedRuntime.network)
+    throw new Error("Replacement requires manual managed Compose without network allocation.");
+  const plan = inspectManagedDevcontainerConfig({
+    repoPath: state.repoPath,
+    config: runtime.config,
+    profile: runtime.resolvedProfile,
+    linked: isLinkedWorktree(state.repoPath),
+  });
+  if (
+    state.sourceConfigSha256 !== plan.sourceConfigSha256 ||
+    state.effectiveConfigSha256 !== plan.effectiveConfigSha256 ||
+    inspectManagedDevcontainerGeneratedConfig(plan).status !== "valid"
+  )
+    throw new Error("Replacement refuses changed or unavailable managed configuration.");
+  const containers = proveRetainedManagedStop(state);
+  if (!baseline.containers.some((c) => c.service !== baseline.primaryService))
+    throw new Error(
+      "App replacement requires a retained dependency to preserve released-client recovery proof.",
+    );
+  if (containers.some((c) => c.state.Running || !["created", "exited"].includes(c.state.Status)))
+    throw new Error("App replacement requires every retained container stopped.");
+  const workspace = state.workspace
+    ? { token: state.workspace, gitCommonDir: resolveGitCommonDir(state.repoPath) }
+    : undefined;
+  assertManagedContainerConfigUnchanged({ plan, containers, workspace });
+  const source = replacementSourceDigest(state, plan);
+  const evidence = inspectNetworkProviderBinding({
+    provider: "devsy",
+    providerId: state.devpodId,
+    repoPath: state.repoPath,
+    endpoint: baseline.endpoint,
+    providerContext: baseline.context,
+  });
+  if (
+    !evidence.versionQualified ||
+    evidence.registration !== "owned" ||
+    evidence.providerName !== "docker" ||
+    evidence.dockerPath !== "docker" ||
+    evidence.persistedContext !== null ||
+    (evidence.persistedEndpoint !== null && evidence.persistedEndpoint !== baseline.endpoint) ||
+    evidence.daemonId !== baseline.daemonId
+  )
+    throw new Error("Replacement provider destination is unqualified or changed.");
+  const inventory = inspectAppReplacementInventory(baseline.endpoint);
+  const primaryId = baseline.containers.find((c) => c.service === baseline.primaryService)?.id;
+  if (!primaryId) throw new Error("Replacement has no exact retained primary.");
+  assertNoAppNamespaceConsumers(inventory, primaryId);
+  const primary = inventory.find((c) => c.id === primaryId) as AppReplacementContainer;
+  const env = managedComposeEnvironment(workspace);
+  delete env.DOCKER_CONTEXT;
+  delete env.DOCKER_HOST;
+  const result = spawnSync(
+    "docker",
+    [
+      "--host",
+      baseline.endpoint,
+      "compose",
+      "--project-name",
+      baseline.project,
+      "--project-directory",
+      plan.composeDirectory,
+      ...baseline.composeFiles.flatMap((f) => ["-f", f]),
+      "config",
+      "--format",
+      "json",
+      "--no-env-resolution",
+    ],
+    {
+      cwd: plan.composeDirectory,
+      env,
+      encoding: "utf8",
+      timeout: 15_000,
+      maxBuffer: 4 * 1024 * 1024,
+    },
+  );
+  if (result.status !== 0 || result.error)
+    throw new Error("Replacement Compose evidence is unavailable.");
+  const model = JSON.parse(result.stdout);
+  const service = model?.services?.[plan.primaryService];
+  if (!service || !Array.isArray(service.volumes))
+    throw new Error("Replacement requires declared persistent mounts.");
+  for (const mount of primary.mounts) {
+    if (!["bind", "volume"].includes(mount.Type))
+      throw new Error("Replacement refuses unattributed primary mounts.");
+    if (
+      mount.Type === "volume" &&
+      !service.volumes.some(
+        (v: { type?: string; source?: string; target?: string }) =>
+          v.type === "volume" &&
+          v.source &&
+          v.target === mount.Destination &&
+          model.volumes?.[v.source]?.name === mount.Name,
+      )
+    )
+      throw new Error("Replacement refuses anonymous or undeclared primary volumes.");
+  }
+  const binding: NetworkProviderBinding = {
+    provider: "devsy",
+    providerId: state.devpodId,
+    endpoint: baseline.endpoint,
+    daemonId: baseline.daemonId,
+    definitionSha256: evidence.definitionSha256,
+    providerContext: baseline.context,
+  };
+  const digest = createHash("sha256")
+    .update(
+      JSON.stringify({
+        state,
+        plan,
+        source,
+        binding,
+        primary,
+        population: containers,
+        modelSha256: createHash("sha256").update(result.stdout).digest("hex"),
+      }),
+    )
+    .digest("hex");
+  return { state, plan, primary, binding, sourceSha256: source, digest };
+}
+
+/** Establish a new stop baseline before application checks, retaining dependency and mount identities. */
+export function captureReplacedAppStopState(
+  proof: ManagedAppReplacementProof,
+): ManagedRuntimeState {
+  const { state, plan, primary } = proof;
+  if (replacementSourceDigest(state, plan) !== proof.sourceSha256)
+    throw new Error("Replacement source changed.");
+  const baseline = validateManagedStopBaseline(state.stopBaseline, state);
+  if (inspectManagedDevcontainerGeneratedConfig(plan).status !== "valid")
+    throw new Error("Replacement generated configuration changed after dispatch.");
+  const evidence = inspectNetworkProviderBinding({
+    provider: "devsy",
+    providerId: state.devpodId,
+    repoPath: state.repoPath,
+    endpoint: baseline.endpoint,
+    providerContext: baseline.context,
+  });
+  if (
+    evidence.registration !== "owned" ||
+    evidence.providerName !== "docker" ||
+    evidence.dockerPath !== "docker" ||
+    !evidence.versionQualified ||
+    evidence.definitionSha256 !== proof.binding.definitionSha256 ||
+    evidence.daemonId !== proof.binding.daemonId ||
+    evidence.persistedContext !== null ||
+    (evidence.persistedEndpoint !== null && evidence.persistedEndpoint !== proof.binding.endpoint)
+  )
+    throw new Error("Replacement provider definition or destination changed after dispatch.");
+  const containers = inspectManagedStopContainers(baseline.project, baseline.endpoint);
+  const next = containers.find(
+    (c) => c.labels["com.docker.compose.service"] === baseline.primaryService,
+  );
+  if (!next || next.id === primary.id)
+    throw new Error("Provider did not replace the exact application container.");
+  const after = inspectAppReplacementInventory(baseline.endpoint).find((c) => c.id === next.id);
+  const mountIdentity = (mounts: AppReplacementContainer["mounts"]) =>
+    mounts
+      .map((m) => ({ Type: m.Type, Source: m.Source, Destination: m.Destination }))
+      .sort((a, b) => compareText(a.Destination, b.Destination));
+  if (
+    !after ||
+    after.image !== primary.image ||
+    !isDeepStrictEqual(mountIdentity(after.mounts), mountIdentity(primary.mounts))
+  )
+    throw new Error("Replacement changed the primary image or persistent mount identities.");
+  const deps = (items: typeof baseline.containers) =>
+    items
+      .filter((c) => c.service !== baseline.primaryService)
+      .sort((a, b) => compareText(a.id, b.id));
+  if (
+    !isDeepStrictEqual(
+      deps(containers.map(identity)),
+      deps(baseline.containers.map((c) => ({ ...c, mounts: orderedMounts(c.mounts) }))),
+    )
+  )
+    throw new Error("Replacement changed the retained dependency population.");
+  const candidate: ManagedRuntimeState = {
+    ...state,
+    status: "degraded",
+    transitionPhase: "app-replacement",
+    updatedAt: new Date().toISOString(),
+  };
+  candidate.stopBaseline = captureManagedStopBaseline(candidate, plan, next.id, baseline.endpoint);
+  claimLifecycleEffect();
+  writeManagedRuntimeState(candidate);
+  return candidate;
 }
 
 export type ManagedStopProof =

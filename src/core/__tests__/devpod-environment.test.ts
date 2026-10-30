@@ -1,9 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  type AppReplacementContainer,
   assertManagedStopCheckoutAbsent,
   assertManagedStopContainersAbsent,
+  assertNoAppNamespaceConsumers,
   hasExactComposeIdentity,
+  inspectAppReplacementInventory,
   inspectManagedStopContainers,
   inspectManagedStopDaemon,
   inspectManagedStopRunnerId,
@@ -20,6 +23,60 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 afterEach(() => vi.unstubAllEnvs());
+
+describe("app replacement daemon proof", () => {
+  const primary: AppReplacementContainer = {
+    id: "a".repeat(64),
+    name: "/app",
+    image: `sha256:${"b".repeat(64)}`,
+    namespaces: { NetworkMode: "project_default", PidMode: "", IpcMode: "private" },
+    mounts: [],
+  };
+
+  it.each([
+    "a".repeat(64),
+    "a".repeat(12),
+    "app",
+    "/app",
+  ])("refuses a foreign stopped namespace consumer by %s", (reference) => {
+    for (const key of ["NetworkMode", "PidMode", "IpcMode"] as const) {
+      const foreign = {
+        ...primary,
+        id: "c".repeat(64),
+        name: "/foreign",
+        namespaces: { ...primary.namespaces, [key]: `container:${reference}` },
+      };
+      expect(() => assertNoAppNamespaceConsumers([primary, foreign], primary.id)).toThrow();
+    }
+  });
+
+  it("rejects unresolved namespaces and permits an independent complete inventory", () => {
+    expect(() => assertNoAppNamespaceConsumers([primary], primary.id)).not.toThrow();
+    expect(() =>
+      assertNoAppNamespaceConsumers(
+        [{ ...primary, namespaces: { ...primary.namespaces, PidMode: "container:missing" } }],
+        primary.id,
+      ),
+    ).toThrow();
+  });
+
+  it("inspects all stopped/foreign IDs without environment values and rejects inventory races", () => {
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce({ status: 0, stdout: `${primary.id}\n` } as never)
+      .mockReturnValueOnce({ status: 0, stdout: `${JSON.stringify(primary)}\n` } as never)
+      .mockReturnValueOnce({ status: 0, stdout: `${primary.id}\n` } as never);
+    expect(inspectAppReplacementInventory("unix:///tmp/fixture.sock")).toEqual([primary]);
+    expect(vi.mocked(spawnSync).mock.calls[0][1]).toContain("--all");
+    const inspectArgs = vi.mocked(spawnSync).mock.calls[1][1];
+    expect(inspectArgs).toContain(primary.id);
+    expect(inspectArgs?.join(" ")).not.toContain(".Config.Env");
+    vi.mocked(spawnSync)
+      .mockReturnValueOnce({ status: 0, stdout: `${primary.id}\n` } as never)
+      .mockReturnValueOnce({ status: 0, stdout: `${JSON.stringify(primary)}\n` } as never)
+      .mockReturnValueOnce({ status: 0, stdout: "" } as never);
+    expect(() => inspectAppReplacementInventory("unix:///tmp/fixture.sock")).toThrow();
+  });
+});
 
 describe("inspectWorkspaceContainers", () => {
   it("lists every container and inspects it without paying for size reporting", () => {

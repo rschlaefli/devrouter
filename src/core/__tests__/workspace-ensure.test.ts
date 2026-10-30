@@ -48,6 +48,7 @@ import { collectManagedRuntimeStatus } from "../managed-runtime-status";
 import { captureManagedStopBaseline, proveRetainedManagedStop } from "../managed-stop-recovery";
 import { inspectLegacyNetworkCapacity } from "../network-diagnostics";
 import * as reliabilityLifecycle from "../reliability-lifecycle";
+import { readAppReplacementAttempt } from "../reliability-operation-store";
 import { loadRepoConfig, loadRuntimeConfig } from "../repo-config";
 import { startRouterStack } from "../router";
 import { ensureTLSHostsCovered } from "../tls";
@@ -61,6 +62,10 @@ import { writeWorkspaceOwnership } from "../workspace-ownership";
 import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
 vi.mock("../network-diagnostics", () => ({ inspectLegacyNetworkCapacity: vi.fn() }));
+vi.mock("../reliability-operation-store", async (original) => ({
+  ...(await original<typeof import("../reliability-operation-store")>()),
+  readAppReplacementAttempt: vi.fn(() => undefined),
+}));
 vi.mock("../managed-fresh-bootstrap", () => ({
   assertFreshBootstrapRequest: vi.fn(),
   createFreshBootstrap: vi.fn(),
@@ -435,6 +440,7 @@ describe("workspaceEnsure", () => {
 
   beforeEach(() => {
     vi.mocked(inspectLegacyNetworkCapacity).mockReset();
+    vi.mocked(readAppReplacementAttempt).mockReturnValue(undefined);
     vi.stubEnv("DEVROUTER_WORKSPACE_RUNTIME", "devpod");
     resetWorkspaceRuntimeCaches();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "devrouter-ensure-"));
@@ -701,6 +707,32 @@ describe("workspaceEnsure", () => {
       return { status: 0, stdout: "", stderr: "" } as never;
     });
   }
+
+  it.each([
+    "claimed",
+    "replaced",
+    "ready",
+  ] as const)("allows ordinary startup after absence with proven replacement phase %s", async (stage) => {
+    makePrimaryRepo();
+    mockPrimaryLifecycle({ devpodLists: [[], [devpod("sample", tmpDir)]] });
+    vi.mocked(readAppReplacementAttempt).mockReturnValue({ stage } as never);
+    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
+    const result = await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 });
+    expect(result.kind).toBe("primary");
+    expect(devpodUpCalls()).toHaveLength(1);
+    expect(proveRetainedManagedStop).not.toHaveBeenCalled();
+  });
+
+  it("refuses unknown replacement completion with absent resources before ordinary provider startup", async () => {
+    makePrimaryRepo();
+    mockPrimaryLifecycle({ devpodLists: [[]] });
+    vi.mocked(readAppReplacementAttempt).mockReturnValue({ stage: "dispatched" } as never);
+    vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
+    await expect(
+      workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow(/retained stop baseline/);
+    expect(devpodUpCalls()).toHaveLength(0);
+  });
 
   function managedPlanFor(desiredProfileServices: string[]): ManagedDevcontainerPlan {
     const composeDirectory = path.join(tmpDir, ".devcontainer");

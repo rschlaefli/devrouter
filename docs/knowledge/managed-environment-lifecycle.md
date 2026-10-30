@@ -639,3 +639,19 @@ stop-work boundary and effect fence precede its write; normal pinned stop and
 settlement then apply. Recovery neither starts applications nor removes
 volumes, and cannot be combined with deletion. Ordinary stop still refuses
 unrecorded replacement populations.
+
+
+## Explicit stopped application replacement
+
+ADR [0015](../adr/0015-explicit-stopped-app-replacement.md) extends the existing
+fenced ensure intent with `--replace-app`. It is manual Devsy 1.24.0 only, after
+canonical stopped-generation proof. The provider can discard only the proved
+primary writable layer; named mounts and dependency IDs remain stable.
+Daemon-wide namespace consumers and anonymous volumes refuse before dispatch.
+A retained dependency anchors guarded recovery if the old primary disappears.
+The operation store owns a single-use receipt outside journal enumeration,
+while the existing degraded baseline protects released recovery semantics.
+Neither uncertainty, settlement nor new request IDs rearm replacement. The
+[owning manual](../DEVCONTAINER.md#explicit-stopped-application-replacement)
+contains prerequisites and the preserving stop/repair path. Compose apply and
+restore remain separate unsupported transitions.

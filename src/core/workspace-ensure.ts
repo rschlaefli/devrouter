@@ -54,7 +54,13 @@ import {
   writeManagedRuntimeState,
 } from "./managed-runtime-state";
 import { collectManagedRuntimeStatus } from "./managed-runtime-status";
-import { captureManagedStopBaseline, proveRetainedManagedStop } from "./managed-stop-recovery";
+import {
+  captureManagedAppReplacementProof,
+  captureManagedStopBaseline,
+  captureReplacedAppStopState,
+  type ManagedAppReplacementProof,
+  proveRetainedManagedStop,
+} from "./managed-stop-recovery";
 import { inspectLegacyNetworkCapacity } from "./network-diagnostics";
 import { networkDockerOptions, withNetworkEffectGuard } from "./network-effect-scope";
 import {
@@ -64,11 +70,15 @@ import {
 } from "./network-managed";
 import { recoverUnattachedNetworkReservation } from "./network-recovery";
 import {
+  advanceActiveAppReplacement,
+  assertActiveAppReplacement,
+  claimActiveAppReplacement,
   claimLifecycleEffect,
   clearActiveLifecycleStartupWitness,
   preflightRuntimeVariant,
   withLifecycleOperationLock,
 } from "./reliability-lifecycle";
+import { readAppReplacementAttempt } from "./reliability-operation-store";
 import {
   loadRepoConfig,
   loadRuntimeConfig,
@@ -164,6 +174,7 @@ type WorkspaceEnsureOptions = {
   variant?: string;
   repair?: boolean;
   initializeNew?: boolean;
+  replaceApp?: boolean;
   containerTimeoutMs?: number;
   httpTimeoutMs?: number;
 };
@@ -1061,6 +1072,8 @@ export async function workspaceEnsure(
     let detachedState: ManagedRuntimeState | undefined;
     let resetCandidateState: ManagedRuntimeState | undefined;
     let capturedStopState: ManagedRuntimeState | undefined;
+    let replacementProof: ManagedAppReplacementProof | undefined;
+    let replacementClaimed = false;
     const routeLoadOptions = {
       initialTimeoutMs: Math.min(options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS, 3_000),
       recoveryTimeoutMs: Math.min(options.httpTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS, 10_000),
@@ -1183,6 +1196,30 @@ export async function workspaceEnsure(
             processes: managedRuntime.processes,
           });
         }
+      }
+      if (options.replaceApp) {
+        if (!managedPlan || !previousManagedState || options.repair || options.initializeNew)
+          throw new Error(
+            "App replacement requires the retained managed generation without repair or initialization.",
+          );
+        assertRepairBaseline({
+          repoPath,
+          target,
+          state: previousManagedState,
+          plan: managedPlan,
+          config: runtime.config,
+          profile: runtime.profile,
+          variant,
+          processes: desiredProcesses,
+          routes: previousRoutes,
+          workspace: managedWorkspaceEnv,
+        });
+        replacementProof = await withDevsyMutationLock(
+          "Verify app replacement",
+          repoPath,
+          async () =>
+            captureManagedAppReplacementProof(previousManagedState as ManagedRuntimeState),
+        );
       }
       if (managedPlan) {
         // Fixed published bindings are machine-global: detect live collisions
@@ -1333,6 +1370,41 @@ export async function workspaceEnsure(
             recreate,
             quiet: options.quiet,
             ...(freshBootstrap ? { freshBootstrap } : {}),
+            ...(replacementProof
+              ? {
+                  appReplacement: {
+                    binding: replacementProof.binding,
+                    beforeDispatch: () => {
+                      const proof = replacementProof as ManagedAppReplacementProof;
+                      const current = captureManagedAppReplacementProof(proof.state);
+                      if (current.digest !== proof.digest)
+                        throw new Error("App replacement preflight changed before dispatch.");
+                      claimActiveAppReplacement(proof.digest, proof.primary.id);
+                      replacementClaimed = true;
+                      // Released clients already require exact retained population proof for degraded recovery.
+                      // Persist that barrier before the provider may remove the old primary.
+                      writeManagedRuntimeState({
+                        ...proof.state,
+                        status: "degraded",
+                        transitionPhase: "app-replacement",
+                        updatedAt: new Date().toISOString(),
+                      });
+                      advanceActiveAppReplacement("dispatched");
+                    },
+                    afterStart: () => {
+                      capturedStopState = captureReplacedAppStopState(
+                        replacementProof as ManagedAppReplacementProof,
+                      );
+                      const primary = capturedStopState.stopBaseline?.containers.find(
+                        (c) => c.service === capturedStopState?.stopBaseline?.primaryService,
+                      );
+                      if (!primary)
+                        throw new Error("Replacement lost its newly proved stop baseline.");
+                      advanceActiveAppReplacement("replaced", primary.id);
+                    },
+                  },
+                }
+              : {}),
             ...(requestedTarget.kind === "linked"
               ? {
                   workspace: {
@@ -1356,10 +1428,10 @@ export async function workspaceEnsure(
         return preflight(options.containerTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS);
       };
 
-      let recreated = false;
+      let recreated = Boolean(options.replaceApp);
       let container: ValidatedWorkspaceContainer | undefined;
       try {
-        if (!options.repair) await startAndProveAttachment();
+        if (!options.repair) await startAndProveAttachment(Boolean(options.replaceApp));
       } catch (error) {
         if (managedPlan || !target.hadExactDevpod) {
           throw error;
@@ -1772,6 +1844,7 @@ export async function workspaceEnsure(
         claimLifecycleEffect();
         writeManagedRuntimeState(candidateState);
       }
+      if (replacementClaimed) advanceActiveAppReplacement("ready");
       return {
         kind: target.kind,
         repoPath,
@@ -1786,6 +1859,17 @@ export async function workspaceEnsure(
         ...(managedRuntimeStatus ? { managedRuntime: managedRuntimeStatus } : {}),
       };
     } catch (error) {
+      if (options.replaceApp) {
+        if (candidateRoutesPublished) {
+          claimLifecycleEffect();
+          replaceHostRoutesForRepo(repoPath, []);
+          await ensureTraefikRoutesRemoved(candidateRoutes, {
+            ...routeLoadOptions,
+            allowRestart: false,
+          });
+        }
+        throw error;
+      }
       if (network?.retained()) {
         throw new Error(
           `Network-bound transition did not reach readiness. Retain runtime, binding and claim for exact repair. ${error instanceof Error ? error.message : "Unknown failure."}`,
@@ -2178,9 +2262,25 @@ export async function workspaceEnsure(
       () => network?.endpoint,
     );
   preflightRuntimeVariant(repoPath, options);
+  if (options.replaceApp) assertActiveAppReplacement();
   return withLifecycleOperationLock(repoPath, async () => {
     preflightRuntimeVariant(repoPath, options);
     const preparationConfig = loadRepoConfig(repoPath);
+    if (!options.replaceApp) {
+      const workspace = linked ? readPersistedWorkspace(repoPath) : undefined;
+      const attempt = readAppReplacementAttempt({
+        repoPath,
+        workspace: workspace ?? null,
+        provider: resolveWorkspaceRuntimeOrDefault(repoPath),
+      });
+      if (attempt?.stage === "dispatched") {
+        const retained = readManagedRuntimeState(repoPath, workspace);
+        if (!retained) throw new Error("Replacement recovery requires its retained stop baseline.");
+        await withDevsyMutationLock("Prove replacement recovery", repoPath, async () =>
+          proveRetainedManagedStop(retained),
+        );
+      }
+    }
     if (options.repair) {
       const workspace = linked ? readPersistedWorkspace(repoPath) : undefined;
       if (linked && !workspace) throw new Error("Repair requires an existing workspace identity.");
