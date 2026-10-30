@@ -123,16 +123,33 @@ six finding dispositions remain the detailed contract and reusable plan critique
   proof uses the actual tag, equal Git trees and complete package byte equality.
   The requesting recovery owner's notice could not be confirmed because its
   task host was unavailable; other authorized owner notices were delivered.
-- Consumer acceptance remains open under its existing owner. Ordinary ensure
-  conditionally selects retained repair; it does not expose an unconditional
-  retained-only constraint if the entry state/project changes. Qualify ordinary
-  repository hooks before invoking it. The existing preserving bootstrap default
-  is being assessed as the smallest consumer adaptation; changing a destructive
-  startup default or cold-initialization behavior requires a concrete consumer
-  ruling. No consumer source, runtime or database effects followed this release.
-- Current continuation, 2026-10-30: the existing native goal is active and targets
+- The existing consumer owner delivered the approved preserving post-create
+  adaptation at `79cd33357a18e0581ee480f0e1837dacef17a666` in
+  [draft PR #6652](https://github.com/uzh-bf/klicker-uzh/pull/6652).
+  Native checks and independent review pass. Hosted codebase CI cannot run on
+  the conflicting draft; the human approved a DEV-only exception to that
+  prerequisite for this exact candidate. Consumer CI and merge remain blocked.
+  Ordinary ensure conditionally selects retained repair; the preserving hooks
+  also protect the ordinary provider-start branch. Empty-schema startup now
+  refuses rather than initializing implicitly; fresh adoption remains separate.
+- The one approved ordinary full-profile ensure completed in 86.426 seconds
+  using selected 0.6.3, with a completed, drained operation and no runtime drift.
+  Both marked restricted databases passed read-only identity/schema checks.
+  The owner verified retained content, delegated login and sampled application
+  interactions. Full acceptance is blocked by a consumer PWA server-render
+  `localStorage is not defined` crash at `useDefaultLayout`; student manual and
+  active-block selection remain unverified. Compact German evaluation also
+  overflows horizontally. Canonical stop recovery completed in 74.827 seconds.
+  Final readback proves the exact provider and original containers stopped,
+  retained mounts and volumes, zero checkout routes and no active journal
+  worker. The journal's last operation is an earlier drained `exec`; its ID is
+  not evidence for a stop operation. Synthetic quiz state changes may persist;
+  stop is not rollback. The startup allowance is consumed. The consumer owner
+  retains the SSR correction; a further runtime attempt requires a new bounded
+  approval.
+- Current continuation, 2026-10-30: the existing goal targets
   ordinary preserving startup plus owner-verified consumer acceptance. The
-  source correction in PR169 is reviewed and passes exact-head CI at e138da8e.
+  source correction in PR169 is released from reviewed candidate 094d7d8d.
   Source acceptance does not close the consumer or provider qualification gates.
 - The bounded isolated agent-acquisition probe used existing
   `prepareDevsyAgent` with task-local cache/lock paths. Official Devsy1.24.0

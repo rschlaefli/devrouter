@@ -17,7 +17,16 @@ passes. Registry integrity, all 105 package members and the explicitly approved
 selected Volta installation match the tested artifact. Devsy 1.24.0 synthetic
 replacement passes after approved verified-agent preparation: actual agent bytes,
 changed container identity, retained volumes and database relationships, replay
-refusal and final stop are proved. Consumer acceptance remains open. The
+refusal and final stop are proved. The affected consumer's one approved ordinary
+full-profile startup also passed on installed 0.6.3. Its owner verified retained
+content, delegated login and sampled application interactions. Full acceptance
+is blocked by a separate PWA server-render crash in `useDefaultLayout`
+(`localStorage is not defined`). Canonical stop recovery passed; final readback
+proves the exact provider and original containers stopped, retained mounts and
+volumes, zero checkout routes and no active journal worker. Native checks and
+independent review passed for the exact consumer source. An explicit DEV-only
+exception allowed startup before hosted CI; hosted consumer CI and merge remain
+blocked. The
 [fresh-bootstrap plan](./2026-10-29-managed-fresh-bootstrap-plan.md#progress)
 owns the producing evidence and historical failed qualification.
 
@@ -46,7 +55,7 @@ records are excluded from this document.
 | Optional runtime-state field was removed by persistence but retained in memory; strict comparison then refused an unchanged generation | Reproduced and fixed through the lifecycle delivery package released in 0.6.1. Persistence round trips and actual startup must protect the same contract; weakening ownership comparison is not the fix. |
 | Retained pilot bootstrap succeeded, then repair refused because no persisted degraded runtime existed | Current `resolveRepairTarget` in `workspace-ensure.ts` confirms this eligibility gate. The owner reports a successful preserving stop, but application acceptance remains blocked. Source diagnosis also recorded a misleading interrupted journal outcome. An agent needs preflight-selected recovery, not trial-and-error flag selection. |
 | Control recovery moved from an old selected CLI to a missing first-start contract, then to unsupported fresh initialization on its provider version | A published feature did not cover the actual consumer support combination. Qualify the intended CLI/provider/context before presenting a release as its remedy. |
-| Correctly configured Devsy 1.24.0 replacement failed with `inject agent: [inject] open binary: agent binary not found` | The failure is observed; its underlying acquisition cause remains unknown. Existing `inspectDevsyAgent` can report host-governed readiness without a verified cached agent. That is a weaker proof than replacement capability, not an established cause of this failure. |
+| Correctly configured Devsy 1.24.0 replacement failed with `inject agent: [inject] open binary: agent binary not found` | Per-source evidence for a bounded reproduction showed no explicit binary, an incompatible Darwin executable, an older provider cache and a DNS lookup failure during official agent acquisition. Approved verified-cache preparation resolved replacement for that exact combination. Host-governed readiness alone still does not prove replacement capability; no general transport failure or other consumer recovery is inferred. |
 | The previous big-picture refocus already called for ordinary agent journeys, while subsequent release notices still left consumers blocked | Source and synthetic progress is real. The remaining delivery gap is consumer convergence and command composition. Make usable consumer work the product acceptance boundary for the scenario being repaired. |
 
 ### Product contract: automatic recovery first
