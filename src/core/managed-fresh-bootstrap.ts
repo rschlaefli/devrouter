@@ -392,9 +392,9 @@ export function createFreshBootstrap(options: {
   return {
     prepare(providerId, network) {
       assertFreshBootstrapRequest(options.identity, { initializeNew: true });
-      if (requireReadyDevsyAgent().version !== "1.19.0")
+      if (!["1.19.0", "1.24.0"].includes(requireReadyDevsyAgent().version))
         throw new Error(
-          "Fresh bootstrap is qualified for Devsy 1.19.0; ordinary startup is unchanged.",
+          "Fresh bootstrap is qualified for Devsy 1.19.0 or 1.24.0; ordinary startup is unchanged.",
         );
       const declaration = loadRepoConfig(repoPath).managedRuntime?.devcontainer.freshBootstrap;
       if (!declaration) throw new Error("Fresh-bootstrap declaration disappeared.");

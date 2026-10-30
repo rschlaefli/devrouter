@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-10-30
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.6.3.md
+
+### Enhanced
+
+- Explicit fresh managed initialization also supports qualified Devsy 1.24.0
+  with the existing local-provider, context, new-storage and ownership checks.
+  Devsy 1.19.0 remains qualified; other versions still refuse this operation.
+
+### Fixed
+
+- Ineligible explicit repair refuses before repository preparation and records
+  a known nonzero completion while retaining cancellation and unknown outcomes.
+- Recovery advice uses ordinary `ensure` after a stop rather than assuming a
+  persisted degraded runtime eligible for `--repair`.
+
 ## [0.6.2] - 2026-10-30
 
 ### Agent Adaptation Prompt

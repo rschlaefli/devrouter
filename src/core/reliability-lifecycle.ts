@@ -1922,6 +1922,28 @@ export function recordLifecycleUnknown(result?: { ok: false; message: string }):
   });
 }
 
+/** A refusal before repository preparation is known only while its worker still owns the operation. */
+export function recordLifecycleRefusal(result: { ok: false; message: string }): void {
+  const request = activeWorker;
+  if (request?.kind !== "ensure") return;
+  updateReliabilityOperation(request.identity, (record) => {
+    if (
+      !matchesFence(record, request.fence) ||
+      record.worker?.id !== request.workerId ||
+      record.state.operation?.id !== request.operationId ||
+      record.state.operation.status !== "RUNNING"
+    )
+      return;
+    stepRecord(
+      record,
+      request.options.repair && !cancelled && process.connected
+        ? { ...request.fence, type: "completion", operationId: request.operationId, exitCode: 1 }
+        : { ...request.fence, type: "interrupted", operationId: request.operationId },
+    );
+    record.result = result;
+  });
+}
+
 export function proveLifecycleStopped(): void {
   const request = activeWorker;
   if (request?.kind !== "stop")

@@ -2097,8 +2097,14 @@ describe("workspaceEnsure", () => {
     "ownership",
   ])("rejects %s repair before runtime or rollback mutations", async (reason) => {
     const { state, runningServices } = mockRepair();
-    if (reason === "ready")
+    if (reason === "ready") {
       vi.mocked(readManagedRuntimeState).mockReturnValue({ ...state, status: "ready" });
+    }
+    if (reason === "ready" || reason === "ownership") {
+      const config = managedRuntimeConfig();
+      config.managedRuntime!.devcontainer.prepareCommand = ["generator"];
+      vi.mocked(loadRepoConfig).mockReturnValue(config);
+    }
     if (reason === "absent") vi.mocked(readManagedRuntimeState).mockReturnValue(undefined);
     if (reason === "profile")
       vi.mocked(loadRuntimeConfig).mockReturnValue({
@@ -2139,6 +2145,8 @@ describe("workspaceEnsure", () => {
     expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
     expect(writeManagedRuntimeState).not.toHaveBeenCalled();
     expect(devpodUpCalls()).toHaveLength(0);
+    if (reason === "ready" || reason === "ownership")
+      expect(runManagedHostPreparation).not.toHaveBeenCalled();
   });
 
   it.each([

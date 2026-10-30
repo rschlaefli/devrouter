@@ -112,6 +112,37 @@ six finding dispositions remain the detailed contract and reusable plan critique
 
 ## Progress
 
+- Current continuation, 2026-10-30: the existing native goal is active and targets
+  ordinary preserving startup plus owner-verified consumer acceptance. The
+  source correction in PR169 is reviewed and passes exact-head CI at e138da8e.
+  Source acceptance does not close the consumer or provider qualification gates.
+- The bounded isolated agent-acquisition probe used existing
+  `prepareDevsyAgent` with task-local cache/lock paths. Official Devsy1.24.0
+  Linux arm64 acquisition and verification passed; inspection changed from
+  host-governed to managed-ready without changing shared setup. A new exact
+  synthetic replacement captures per-source evidence: no explicit binary,
+  incompatible Darwin executable, provider cache at1.19.0, and official1.24.0
+  HTTP acquisition failing DNS lookup. This diagnoses that producing run, not
+  every prior failure or a general transport outage. The replacement must reach
+  terminal state and canonical stop; both subsequently completed, with stopped
+  provider, zero routes and zero running attributed containers.
+- The human explicitly approved the exact shared1.24.0 cache preparation and
+  synthetic replacement. Existing verified acquisition populated that version's
+  official manifest and Linux arm64 agent without changing provider selection
+  or installing a CLI. Correct replacement then exited0; actual injected bytes
+  match the official asset, the app container ID changed, named volume identities
+  stayed equal, and actual main/shadow parent-child values survived preserving
+  startup. Repeat initialization refused. Final canonical stop and provider/route
+  readback pass. Producer remains executable source e138da8e; private receipts are
+  `/private/tmp/devrouter-acquisition-20261030/verified-replacement-proof.json`
+  and `approved-cache-proof.json`. The historical release hold below is resolved
+  for this verified-cache combination; release/installation/consumer acceptance
+  remain separate. Existing source reviews and exact-head checks are reusable.
+- Read-only candidate doctor against the exact pilot reports consistent capacity
+  history without modifying its journal or ledger. The candidate validator accepts
+  the named private journal. No history restoration or guard bypass is needed for
+  this observation. The pilot owner retains startup and hook-effect acceptance;
+  no consumer mutation or database query ran in this continuation.
 - Root outcome: explicit safe managed first initialization, then preserving
   everyday startup, without blocked or silently replayed initialization.
 - Authorized terminal: qualified patch release plus owner notification, or a
@@ -166,3 +197,170 @@ six finding dispositions remain the detailed contract and reusable plan critique
   after the final provider revalidation. Typecheck, docs/knowledge and packed
   0.6.2 smoke pass. Exact final-artifact qualification and integrated review remain
   pending; no release has occurred.
+
+
+## Devsy 1.24.0 qualification extension — 2026-10-30
+
+Approval mode: executable batch. Actual human authority is the requesting recovery
+chat's approval of “qualify 1.24.0 and release a compatible patch if verification
+passes”, answered “yes” in turn01a18c1b-2e4e-71c1-b2b5-f81a9c0543de. This extends
+only the qualified fresh-bootstrap provider versions. Main owns the existing
+clean task worktree on branch `rs/fresh-bootstrap-devsy-124`, based on released
+main5118a8283d2ecd86854b42f58f22e8fb39a8c2c7. Existing ownership, storage,
+context, replay and partial-data guarantees remain binding. No consumer
+installation/adoption, global/provider setup changes, consumer runtime/database
+work, reset/reseed, deletion or existing environment action is authorized.
+
+Root outcome: the same safe fresh-only operation works on explicitly qualified
+Devsy1.24.0 without downgrade or weakening version/storage/context fences.
+First acceptance: official checksum-verified isolated1.24.0 host and Linux
+agent, version-matched source inspection, and a new synthetic deferral/named-exec/
+host-preparation/source-hook replay probe. The1.19.0 evidence remains valid;
+only changed provider behavior needs new producing evidence. Reuse the original
+plan critique and primitive table because the operation and guarantees are
+unchanged. A newly discovered provider or contract gap returns a concrete
+boundary instead of broadening this batch.
+
+Sequence: qualify exact1.24.0 source/flags/options/markers/context; execute new
+bounded synthetic success/failure/cancel/unknown probes with existing fixture
+invariants; make only evidence-warranted compatibility changes and version
+tests; update owning current guidance and patch artifacts; native checks,
+independent final review and exact-head CI; source-identical merge and patch
+publication; registry integrity/byte proof and completion handoff. Reuse prior
+storage/Git/cache/worker regression coverage and exercise those actual seams
+with the new provider. Every touched fixture ends canonical-stopped with zero
+routes and retained data. Neither settlement nor lost registration/completion
+may rearm initialization.
+
+Terminal: compatible qualified patch publication and owner notification, or a
+precise provider/material-guarantee blocker after independent work. The selected
+global Devsy here remains1.19.0; qualification uses a task-local official1.24.0
+binary and matching verified Linux agent without persistent provider setup changes.
+
+
+Qualification progress: released 0.6.2 is main5118a828; its completed CI,
+review, package and stopped-fixture evidence remain valid for the original
+1.19.0 contract. The isolated 1.24.0 public-provider probe passed on a new
+1-CPU/512-MiB fixture: host preparation survives skip flags, literal argv
+remains literal, UID/workspace/Node/pnpm/PATH/declared remote environment match
+source preserving hooks, initialization runs once and later ordinary up runs
+post-create/post-start once. Canonical stop proves stopped provider, zero
+routes and zero running attributed containers, with data retained. Official
+source ref1f47cd185bd134b45cdce12b947f6c601d76d329 and verified Darwin/Linux
+release assets underpin the probe. Native focused checks pass38 tests.
+
+The compatibility candidate admits only exact1.19.0 and1.24.0; neighboring
+untested versions still refuse. No knowledge concept changes: this expands
+one explicitly qualified version without changing lifecycle, context, storage
+or ownership invariants. Real product failure/cancel/unknown, linked storage,
+final native/review/CI and publication evidence remain pending.
+
+
+## Shared routing and orchestration follow-ups — 2026-10-30
+
+Status: recorded for separate shared-tooling delivery. The human requested these
+retro priorities be added to the plan. This records work and acceptance criteria;
+it does not authorize shared configuration changes or fold them into the Devsy
+compatibility release. Existing Devrouter lint, type, test and package CI checks
+remain the baseline. Main coordinates handoff; the shared routing, hook and
+qualification-tool owners implement their respective fixes.
+
+1. **Role and default resolution.** Owner: shared model-routing/dispatch tooling.
+   A named reviewer must retain its configured model when global defaults differ.
+   Exercise disagreement among global defaults, role settings and the active
+   tool's accepted models. Assert requested and resolved role/model/effort,
+   explicit fallback provenance, and a useful source-capable review. Unsupported
+   models must produce a specific launch failure rather than silently select the
+   global default. The current native default dispatch rejected an unavailable
+   Combo model; an explicit supported native fallback worked. That observation
+   does not establish the underlying resolution cause.
+2. **Separate launch, transport and review outcomes.** Owner: shared orchestration
+   result classification. Preserve evidence for each boundary: process launched,
+   transport delivered a model response, source tools ran, and review met its
+   contract. The supplied retro reports 40 successful GLM simplifier source-tool
+   operations, then two unusable blocked reviewer results with no source reads.
+   Those reviewer results do not prove a general proxy outage. A WebSocket 426
+   warning followed by a response does not prove terminal transport failure.
+   Regression cases must retain successful source operations and response
+   delivery while classifying empty-source reviews as incomplete. Verify the
+   producing counters rather than inferring success from an output schema.
+3. **Context and diagnostic overhead.** Owner: shared workflow invocation and
+   diagnostic callers. Apply the existing scoped-read and output-budget rules;
+   avoid adding another global instruction layer. Pass bounded path/field scopes,
+   project large tool results before displaying them, and read only the relevant
+   skill sections. Acceptance is a representative run with complete necessary
+   evidence, compact summaries, explicit omissions and no repeated truncation or
+   redundant full-skill loads. Preserve actionable errors and exact identities.
+4. **Worktree-aware task binding.** Owner: shared task-alignment hook/runtime.
+   Accept the approved plan beneath a verified task worktree's single artifact
+   root while retaining the primary repository/session identity and real human
+   authority locator. Cover primary and linked checkouts, matching Git common
+   directory, canonical paths, and missing/stale/foreign plans or worktrees.
+   Reject path escape and unrelated checkouts. Do not copy a plan into the clean
+   control checkout or loosen binding merely to satisfy the current validator.
+   The current command cannot bind the approved nested task-worktree plan.
+5. **Qualification fixture preflight.** Owner: fixture harnesses, with shared
+   orchestration validation for required inputs. Before dispatch, validate the
+   exact new checkout/destination, source-path-resolved provider identifier when
+   one is required, the exact generated descriptor and linked-worktree environment,
+   and unique database aliases. Before data effects, qualify
+   the complete target database identities; a generic shared-network service
+   hostname is insufficient. Negative cases for ambiguous aliases and undefined
+   identifiers must refuse before provider mutation or SQL effects. Preserve
+   known failure versus unknown completion, partial data and final ownership
+   proof. Include queue-aware deadlines: this run's first cancellation harness
+   expired before provider creation, so it is not post-initialization acceptance.
+
+Completion for these follow-ups requires producing shared-tooling evidence and
+separately reviewed source changes under their owner's authority. A Devrouter
+release, a fallback reviewer or a passing existing CI suite does not close them.
+
+
+## Devsy 1.24.0 qualification checkpoint — release held
+
+Historical checkpoint, superseded by the verified-cache qualification in
+Progress above. The earlier failure evidence remains below; replacement now
+passes for that prepared combination. Publication and consumer acceptance are
+still separate gates.
+
+Status: compatible source candidate in draft PR169; no merge, publication or
+installation. The conditional release gate remains open because a correctly
+configured provider replacement failed agent acquisition. The next boundary is
+a scoped provider-acquisition diagnosis or qualification under a verified
+provider preparation contract, without changing shared setup in this batch.
+
+- Tested implementation/package revision:bd18e2d91315063092229077d2510716a5d2fdf5,
+  version0.6.3. Native3475 tests pass with13 platform skips; docs, knowledge,
+  Biome, Knip, typecheck, build, package smoke, scoped static checks and packed
+  controller qualification pass. Independent final review inspected all11
+  original paths and necessary provider source with no findings. Candidate
+  CI41034938277 and documentation-head CI41036588463 pass. Later changes are
+  project-status documentation; executable hashes remain equal to this producer.
+- Isolated1.24 host and actual injected Linux agent match official release
+  checksums. Deferral, host preparation, literal named-workspace exec, non-root
+  context equality and original hook replay pass. Fresh product initialization,
+  restricted-role PostgreSQL main/shadow retained values, failure/cancellation,
+  preserving recovery, stop/resume and repeat-initialization refusal pass.
+  Durable attempts remain ready/failed/initializing after final stop; no worker
+  remains. Fresh storage, generated dependency mounts, explicit external cache
+  and exact linked Git-common-directory seams were exercised.
+- Two fixture defects were isolated from product behavior. The first cancellation
+  deadline expired while queued before provider creation; it created no attempt
+  or runtime. A new fixture reached initialization before cancellation. The first
+  linked replacement omitted workspace environment and selected the default
+  overlay; strict stop and recovery refused that mismatched population. Corrected
+  preflight verifies exact provider/path, workspace/Git context and retained
+  source/effective plan fingerprints before the same bounded replacement.
+- The corrected replacement reached provider error
+  `inject agent: [inject] open binary: agent binary not found` after its injection
+  phase. This is producing provider evidence, not a general network/proxy outage
+  diagnosis. Supported `stop --repair` then preserving ensure, actual retained
+  database checks, replay refusal and final stop pass. That recovery does not
+  establish a clean successful provider recreation or resolve agent acquisition.
+  Hold the compatibility release until that remaining boundary is qualified.
+- Fresh final checks account for five exact task fixtures: four registrations are
+  stopped, the early queued fixture is positively absent, all have zero routes
+  and zero running attributed services, and existing data/volume identities are
+  retained. No deletion, shared provider configuration, global installation or
+  consumer operation occurred. Published0.6.2 remains the available release;
+  fresh initialization on1.24.0 remains unreleased and consumer recovery unknown.

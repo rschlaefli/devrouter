@@ -9,10 +9,11 @@ import {
   proveLifecycleStopped,
   recordLifecycleCompletion,
   recordLifecycleOutcome,
+  recordLifecycleRefusal,
   recordLifecycleUnknown,
 } from "./core/reliability-lifecycle";
 import type { LifecycleWorkerRequest, LifecycleWorkerResult } from "./core/reliability-worker";
-import { workspaceEnsure } from "./core/workspace-ensure";
+import { WorkspaceEnsureRefusalError, workspaceEnsure } from "./core/workspace-ensure";
 
 let started = false;
 function cancel(): void {
@@ -70,6 +71,7 @@ process.once("message", async (message: { request: LifecycleWorkerRequest }) => 
         message: error instanceof Error ? error.message : String(error),
       };
       if (error instanceof ExecutionOutcomeError) recordLifecycleOutcome(error.outcome, failure);
+      else if (error instanceof WorkspaceEnsureRefusalError) recordLifecycleRefusal(failure);
       else recordLifecycleUnknown(failure);
     } catch {
       /* Preserve the original operation failure. */

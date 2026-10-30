@@ -56,7 +56,11 @@ function reliabilityRecovery(
   switch (reason) {
     case "stop-incomplete":
     case "operation-unknown":
-      return [`Run: devrouter stop ${checkout}`, `Run: devrouter ensure ${checkout} --repair`];
+      return [
+        `Run: devrouter stop ${checkout}`,
+        "Verify the repository startup hooks preserve retained data and startup is authorized before continuing.",
+        `Run: devrouter ensure ${checkout}${variantOption}`,
+      ];
     case "start-refused":
       return [
         `Run: devrouter doctor --repo ${checkout} to read the refused fixed host-port claim and its holder`,

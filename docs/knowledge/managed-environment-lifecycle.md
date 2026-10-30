@@ -213,7 +213,9 @@ does not invoke the repository startup adapter.
 
 Ordinary ensure automatically recovers a retained degraded record using its recorded
 profile and unchanged configuration. Explicit `ensure --repair` limits the invocation
-to this repair stage. It verifies exact provider, workspace and
+to this repair stage. Its persisted-degraded eligibility check precedes repository
+preparation. A known refusal completes with a nonzero exit while cancellation,
+worker loss and uncertain effect completion remain interrupted. It verifies exact provider, workspace and
 container ownership before replay. Stopped primary recovery requires all project
 containers stopped and no checkout routes; it starts only retained Docker IDs,
 never provider bootstrap or Compose creation. The existing container entrypoint

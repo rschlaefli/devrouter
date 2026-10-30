@@ -358,3 +358,94 @@ This release adds guidance only; that behavior needs a separately reviewed
 interface decision. Consumer handoff includes version/artifact proof, command
 sequence, refusals and qualified limits. Workflow observer/routing improvements
 remain with their existing owners.
+
+## Ordinary-startup refusal correction — 2026-10-30
+
+Approval mode: executable source continuation. The human resumed the reliability
+refocus handoff in main turn01a18c60-c3f4-7f51-9cf3-bbb8bf399a42. This continues
+the previously requested reliability roadmap; the side-chat edit supplies
+planning, not new merge, release, installation or consumer-runtime authority.
+Reuse `trees/rs/lifecycle-delivery`, branch `rs/fresh-bootstrap-devsy-124` and
+[draft PR #169](https://github.com/rschlaefli/devrouter/pull/169). The unrelated
+Devsy1.24 release gate stays held. Preserve the verified side-chat roadmap edit.
+
+First acceptance is now reproduced through installed0.6.2 with its verified CLI
+bytes: a synthetic retained ready record refuses explicit repair, exits1 and
+runs zero provider commands, but persists INTERRUPTED. Existing attention advice
+also proposes repair after stop without proving persisted degraded eligibility.
+The next bounded source package makes that refusal truthful and its diagnostic
+next action usable; it does not add automatic provider/bootstrap retries.
+
+| Product primitive | Disposition | Bounded delta and preserved guarantee |
+| --- | --- | --- |
+| Lifecycle operation | Extend existing completion classification | A typed refusal from an early status-only repair-eligibility check before repository preparation completes with exit1. The existing later eligibility/ownership revalidation remains. Cancellation/disconnection, stale ownership/fences and all other unknown completion remain conservative. No new journal/protocol status. |
+| Retained managed runtime | Reuse | Explicit repair still requires persisted degraded state. Observational drift never changes that field or authorizes repair. |
+| Recovery guidance | Compose | Existing stop/start attention advice uses ordinary ensure, which already selects eligible degraded recovery. Refused explicit repair points to exact-checkout read-only diagnostics, never an unqualified automatic startup fallback. Repository hooks require separate preservation/authority proof. |
+
+Main owns the existing lifecycle worker, workspace-ensure and lifecycle bookkeeping,
+managed-runtime attention advice, their existing tests, installed lifecycle
+qualifier, owning Devcontainer manual/knowledge concept and one incident solution
+record under docs/solutions/runtime-error/. No new production module, dependency,
+wire field, status or supervisor. Baseline tests reproduce the defect, then a
+focused fix and relevant native checks run. One independent integrated review
+covers outcome/fence/drainage and guidance correctness. Scope is the complete
+coherent refusal path; simplification adds no separate pass absent new structure.
+
+Acceptance: installed synthetic ready/stopped state has a completed nonzero
+refusal, unchanged retained data/state, no provider mutations and a drained worker;
+ordinary ensure resumes the qualified synthetic fixture. Advice must select an
+executable path without requiring --repair. Cancellation/worker loss, changed
+worker/fence and post-effect generic failure stay unknown. Current native checks,
+package proof, exact-head CI and reviewed draft delivery complete this source
+batch. No affected consumer is recovered without its owner's installed journey.
+Provider acquisition may be investigated read-only independently; no shared setup
+or consumer effect is introduced by this source correction.
+
+Progress: reproduction complete; implementation/review/checks pending. Native
+roadmap goal remains blocked, not active from this handoff. Its user-operated
+Resume control is needed for automatic goal continuation; manual source work
+continues under the recovered instruction without replacing the goal.
+
+
+Refocus progress: the verified side-chat roadmap hash was preserved. Installed
+0.6.2 reproduces both interrupted refusal with zero provider calls and host
+preparation before that refusal. The early preflight and guarded known outcome
+are implemented; generic late failures remain unknown. Two existing behavioral
+regressions first failed, then passed. Eight durable ownership/cancellation
+guard tests pass. Existing fixture probe is being rerun with preparation
+confined to its negative cases. Complete native checks, independent final
+review, packed evidence and exact-head CI remain pending. No release, consumer
+runtime or shared configuration effect is included in this correction.
+
+
+The non-obvious boundary lesson is captured in
+[preparation before repair refusal](../solutions/runtime-error/preparation-before-repair-refusal.md).
+A qualification run also exposed an existing diagnostics limitation: asynchronous
+host preparation can leave phase delivery behind a later synchronous provider
+call, while its build output is already visible. The new negative preparation
+probe is confined to its own case, and the original provider diagnostic qualifier
+passes with its unchanged setup. Keep phase flushing in the existing diagnostic
+outcome backlog; do not widen this source correction or weaken its assertions.
+
+
+Source candidate: two reproduced behavioral regressions now pass; eight atomic
+refusal guard cases cover cancellation/disconnection and stale worker, fence,
+operation and terminal state. Complete native suite3483pass/13platformskips,
+formatter/lint, Knip, typecheck, docs/knowledge, build and package smoke pass.
+Scoped Opengrep reports no findings. Isolated packed lifecycle qualifier passed
+ready/stopped repair refusal without preparation, preserved state/resources,
+drained worker and ordinary ensure, plus unchanged failure/cancel/stop/replay
+safety. Final qualifier after atomic refinement and exact candidate review/CI
+are pending; draft status and held provider qualification remain explicit.
+Source/test/script delta for this correction is 146lines; no new production
+module or dependency. The new incident solution is included for the proven
+preparation boundary. No additional simplification structure is justified.
+
+
+Independent final review verified one remaining early frontier: missing linked
+identity bypassed the status-only preflight and could reach preparation. The
+correction refuses that case before preparation with the original generic error;
+it never becomes a typed known completion. The existing ownership-negative case
+now supplies a preparation command and asserts it never ran. All other ownership,
+late revalidation and unknown completion behavior is retained. Same-reviewer
+correction and exact-head CI cover the final candidate; no new product ruling.

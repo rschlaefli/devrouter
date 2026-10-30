@@ -1,37 +1,247 @@
-# Reliable managed sessions through Devrouter 0.1.0
+# Reliable managed development environments
 
-**Current status (2026-10-29): released through 0.6.0; reliability acceptance
-remains active.** The [current lifecycle delivery package](./2026-10-29-lifecycle-delivery-plan.md)
-combines persistence and partial-population recovery fixes and verifies the
-ordinary agent workflow. The [earlier repair and verification package](./2026-10-26-reliability-evidence-repair.md)
-records merged sleep-verifier and stop-repair evidence. Release/source completion
-does not establish complete M1–M3 acceptance.
+## Current direction and acceptance — 2026-10-30
 
-### Current acceptance and ownership
+**Outcome: an agent asks for an environment once, then works.** Devrouter should
+reach verified application readiness through bounded, preserving recovery. When
+it cannot, it should explain the specific obstruction and return the smallest
+validated next action. Agents should not need to infer internal lifecycle state
+or assemble a sequence of repair commands from chat history.
 
-| Work | Current evidence and next boundary |
+**Delivery status:** [0.6.2](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.2)
+is the latest published release. The 0.6.3 compatibility candidate in
+[draft PR #169](https://github.com/rschlaefli/devrouter/pull/169) now passes the
+previously held Devsy 1.24.0 replacement after explicitly approved preparation
+through the existing verified-agent cache. Actual injected-agent bytes, changed
+container identity, retained volumes and database relationships, replay refusal
+and final stop are proved on the synthetic fixture. Publication and consumer
+acceptance remain pending. The [fresh-bootstrap plan](./2026-10-29-managed-fresh-bootstrap-plan.md#devsy-1240-qualification-checkpoint--release-held)
+owns the producing evidence and the historical failed qualification.
+
+This front section replaces the older current-status table and priority order.
+Historical execution records below remain evidence, not current completion
+claims. Existing W0–W9, S1–S8, M0–M3 and Q01–Q36 obligations remain open wherever
+acceptance is missing. The user requested this investigation and roadmap refocus
+on 2026-10-30; this revision changes planning only. Existing owners retain source,
+runtime and delivery authority. No new implementation, installation, release,
+consumer mutation or provider-configuration action is performed by this revision.
+
+### Evidence and the delivery gap
+
+The investigation inspected Devrouter-related outcomes and selected technical
+excerpts from five existing root chats, covering 39 recent turns on October
+29–30, plus the older available Doc Query outcome. It compared those reports
+with current source, the existing roadmap, release metadata and draft PR state.
+This is a purposive incident sample, not a fleet reliability measurement.
+Consumer statements below are owner-reported; their environments were not probed.
+Recent Doc Query deliveries have no successful receiving outcome, so its current
+local environment remains unknown. Raw chats, private identities and runtime
+records are excluded from this document.
+
+| Evidence | Finding and consequence |
 | --- | --- |
-| Released lifecycle foundation | [0.6.0](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.0) is published and its local global installation is verified against registry integrity and CLI/worker/helper bytes. The current unreleased lifecycle candidate remains a separate artifact; downstream adoption is unqualified. |
-| Ordinary agent journey | [PR #167](https://github.com/rschlaefli/devrouter/pull/167) combines the persistence and partial-replacement fixes. Candidate `04f5c62e` passes regression/source/package checks, independent integrated review and [hosted CI](https://github.com/rschlaefli/devrouter/actions/runs/40884580277). Its installed packed artifact passed two-environment cold start, actual work, warm reuse, propagated adapter failure, repair, stop/resume, retained data and neighbour functionality. Both fixtures finished stopped with zero exact routes. This remains an unreleased synthetic qualification, not RF08 or consumer acceptance. |
-| Interrupted provisioning and live diagnostics | The approved extension in [PR #167](https://github.com/rschlaefli/devrouter/pull/167) preserves explicit `stop --repair` and adds operation-bound status plus private bounded `logs --repo` snapshots. The installed synthetic build/inspection/cancellation/stop journey passes; its data marker is a synthetic backing file, not Docker named-volume acceptance. A real consumer still needs owner-verified configuration/ownership proof and separately authorized recovery. Integrated review and CI pass. The 0.6.1 candidate additionally exercises real held-build diagnostics, cancellation, namespace proofs and named-volume retention on disposable fixtures. Live receipts distinguish an equivalent namespace from a correctly refused stale binding; consumer acceptance remains separate. |
-| Repository recovery guidance in diagnostics | Proposed interface decision: reuse existing managed attention/status/doctor output, with an explicit repository-relative documentation reference rather than a command to execute. Validate path containment and render the reference without running it; bootstrap refusal must remain distinct from initialization authority. No field, reason code or diagnostic behavior is added in 0.6.1. Consumer verification hooks and destructive initialization remain consumer-owned. |
-| Peer namespace reconciliation | Open: a provider's primary recreation can leave a peer attached to a removed namespace. Existing stop repair correctly refuses this genuine drift. A future bounded package must provide or qualify an ownership-proven reconciliation path without treating the old namespace as equivalent. Fixture-only restoration does not authorize consumer repair or a provider/library patch. |
-| RF08 integrated canary | Open: requires an authorized consumer/profile and two environments, semantic readiness, fault/pressure/parking/resume proof and neighbour functionality. Isolated fixtures do not close this contract. |
-| RF09 / Q20 host suspend | Partially qualified: the September pass remains invalid acceptance evidence. After the verifier correction in [PR #156](https://github.com/rschlaefli/devrouter/pull/156), a fresh long-suspend retry passed on unchanged `1df0d0a6` artifacts: the old generation was invalidated, re-observation issued a fresh generation, the route remained functional, and cleanup was verified. A short-suspend attempt failed session invalidation; short suspends under the current timer policy remain an open coverage gap. This is source-revision qualification, not exact-release or consumer acceptance. |
-| Explicit stop repair | [PR #156](https://github.com/rschlaefli/devrouter/pull/156) merged the bounded repair from [PR #130](https://github.com/rschlaefli/devrouter/pull/130), with retry/failure-boundary coverage. Scoped live replacement/refusal/repair/retry/data-retention verification passed; consumer recovery remains separately owned. |
-| RF11 consumer adoption | Open with the consumer owner. Its later task response did not require runtime recovery for its current work; that response is not the original checkout's ensure/smoke/stop receipt. |
-| Q26 quarantine | Symlink protections are source-qualified. The absent quarantine capability still requires an explicit unsupported disposition or separately scoped implementation. |
+| Optional runtime-state field was removed by persistence but retained in memory; strict comparison then refused an unchanged generation | Reproduced and fixed through the lifecycle delivery package released in 0.6.1. Persistence round trips and actual startup must protect the same contract; weakening ownership comparison is not the fix. |
+| Retained pilot bootstrap succeeded, then repair refused because no persisted degraded runtime existed | Current `resolveRepairTarget` in `workspace-ensure.ts` confirms this eligibility gate. The owner reports a successful preserving stop, but application acceptance remains blocked. Source diagnosis also recorded a misleading interrupted journal outcome. An agent needs preflight-selected recovery, not trial-and-error flag selection. |
+| Control recovery moved from an old selected CLI to a missing first-start contract, then to unsupported fresh initialization on its provider version | A published feature did not cover the actual consumer support combination. Qualify the intended CLI/provider/context before presenting a release as its remedy. |
+| Correctly configured Devsy 1.24.0 replacement failed with `inject agent: [inject] open binary: agent binary not found` | The failure is observed; its underlying acquisition cause remains unknown. Existing `inspectDevsyAgent` can report host-governed readiness without a verified cached agent. That is a weaker proof than replacement capability, not an established cause of this failure. |
+| The previous big-picture refocus already called for ordinary agent journeys, while subsequent release notices still left consumers blocked | Source and synthetic progress is real. The remaining delivery gap is consumer convergence and command composition. Make usable consumer work the product acceptance boundary for the scenario being repaired. |
 
-RF12 cohort receipts and RF13 durable evidence remain useful historical proof,
-not blanket qualification of every newer release. Cloud-preview development and
-consumer application work retain their existing owners and are outside this
-repair package. Trusted CI adoption and broader dependency refresh remain
-separate follow-ups; they are not implied by this roadmap update.
+### Product contract: automatic recovery first
 
-The sections below preserve dated evidence. This status table supersedes their
-older open/closed labels, particularly the withdrawn Q20 closure.
+The target entry remains `devrouter ensure <checkout> --profile <profile> --json`.
+Keep existing primitives: exact environment identity, desired state/profile,
+lifecycle operation, recovery budget, retained data and readiness capability.
+Compose the existing lifecycle/controller mechanisms; do not introduce another
+supervisor or a second recovery state machine.
+
+- **Recover automatically where effects are proved safe.** Observe current
+  state, join an existing eligible operation, reconcile owned generated state,
+  repair eligible owned processes/routes, and resume preserving startup within
+  one durable action/time budget. Select the smallest correction and re-observe
+  before escalating. Existing repair flags can remain explicit compatibility
+  controls while ordinary ensure becomes sufficient for qualified cases.
+- **Wait without repeated model calls.** Provider contention, dependency grace
+  periods and capacity waits expose phase, owner, last progress and bounded wait
+  semantics. Concurrent requests join or wait; they do not launch repair storms.
+  Cancellation drains the exact operation and produces a truthful terminal state.
+- **Escalate with an actionable result.** Distinguish known refusal, completed
+  failure, waiting, cancellation and unknown completion. Include what was proved,
+  what recovery ran, what remains unchanged or unknown, and one validated next
+  step or the exact missing decision. Diagnostic evidence is compact and local.
+
+Automatic recovery retains ownership, generation, source/configuration,
+resource and endpoint checks. It cannot kill another workspace's port holder,
+reset/reseed data, adopt unknown resources, erase evidence, replay initialization
+or an uncertain application command, or undo explicit stop/parking intent.
+An explicit new start request is distinct from background recovery. Fresh-only
+initialization keeps its existing declaration and explicit authorization; it is
+never a fallback for a failed retained environment. Machine-wide provider setup
+and global upgrades remain separate effects. A repository's hook is not assumed
+preserving merely because it is called startup; qualify its declared behavior.
+
+### Ordered outcomes and acceptance
+
+These packages reorder existing work. Each implementation package must inventory
+already-shipped behavior, use current source, and settle any default/compatibility
+change before dependent effects. No new release date or version promises follow.
+
+| Priority / existing work | Outcome and next scope | Required evidence / owner |
+| --- | --- | --- |
+| 1 — P0, W1/W3a/W4 | One command chooses a preserving path for fresh, warm, stopped, interrupted and eligible degraded environments. Resolve the pilot's repair-selection and journal-classification gap first. Validate eligibility before effects where possible; retain refusal when proof is missing. | Reproduce the stopped/non-degraded case through the installed CLI. Ordinary ensure either completes preserving recovery or returns a specific valid next action. Known validation failure must not become unexplained interruption. Round-trip state, concurrency, partial population and stale-generation negatives remain covered. Devrouter lifecycle owner; pilot owner supplies consumer acceptance. |
+| 2 — P0, W7/W8 | Make provider readiness predict the requested operation. Resolve the held Devsy acquisition failure and qualify the intended consumer combination before expanding support. Prefer existing verified-cache/setup paths over alternate ad-hoc injection. | Exact released/packed CLI, host provider, injected agent, architecture, hook context and retained mounts. Exercise missing/stale/corrupt agent and acquisition failure before and during replacement. Safe verified acquisition can recover within explicit policy; otherwise return the prerequisite before expensive target mutation where feasible. Devrouter/provider owner; Control recovery owner retains adoption. |
+| 3 — P0, W1/W9 | Give agents one consistent recovery result across ensure, status, doctor and exec. Recommendations are computed from the same eligibility checks as execution. | Structured outcome, stable reason, operation identity, phase, bounded attempts, safe retry/wait semantics, and a next action with preconditions/effects/authority. Test that advice is executable in the state that produced it. Preserve unknown completion; never infer a general provider outage from an unrelated review/transport warning. Reuse existing diagnostics and protocol; exact schema is an implementation decision. |
+| 4 — P1, W2/W3b/W6a/W9 | Continue work through common failures using the existing controller and harness. Start with owned process/dependency loss, contention and provider interruption, then capacity parking/resume and sleep. | Real enforcing harness waits and resumes once without a model repair loop. Retained synthetic data and a protected neighbour survive. Recovery budgets persist across retries/controller restarts; exhausted budgets produce an actionable block. Controller/harness owner; existing stop and uncertain-dispatch invariants remain mandatory. |
+| 5 — release acceptance, W4/W5/W7/W8 | Close the loop in affected consumers and prevent recurrence. Couple every repair to its ordinary installed journey instead of postponing adoption behind unrelated feature work. | Exact-package cold start, warm attach, real application work, injected relevant failure, preserving recovery, stop/resume and neighbour functionality. Cover fresh and populated storage separately. An owner-verified affected consumer receipt closes that issue; a second distinct consumer/harness is required for broader portability claims. Existing consumer owners run their authorized acceptance. |
+
+### First useful result and scorecard
+
+The first useful result is a reproduced pilot-shaped retained-state scenario
+where the agent runs ordinary ensure and either gets a working environment or
+precise, prevalidated guidance. It must not require an agent to inspect journal
+internals or guess between repair and ordinary startup. Provider acquisition
+investigation can proceed independently; publishing a compatibility patch waits
+for its own failed qualification boundary to pass.
+
+Record measurements in existing qualification receipts, with exact package,
+provider, profile, outcome and producing run. Establish a baseline before
+claiming a percentage or latency improvement:
+
+| Measure | Acceptance target |
+| --- | --- |
+| Agent interventions | Zero manual repair-command choices for each declared automatically recoverable scenario. |
+| Recovery completion | Every supported fault reaches fresh semantic readiness or a bounded, classified terminal result; no silent infinite retry. |
+| Diagnostic usefulness | Every exercised terminal refusal names a stable cause and a validated next action, or precisely names missing evidence/authority. |
+| Preservation | Zero unauthorized data effects, duplicate uncertain command dispatch, initialization replay, or neighbour disruption in qualification. |
+| Usable-work latency | Measure first usable application operation, warm attach, provider queue time and recovery time separately; compare equivalent support combinations. |
+
+Source/CI, packed synthetic qualification, publication, selected installation and
+consumer acceptance remain separate evidence columns. A narrow patch may ship
+with explicit limits, but a reliability milestone cannot close on test counts or
+publication alone. The reported native test count for the held candidate is not
+a measurement of agent success. Record a supported recovery path for each named
+remaining blocker rather than suggesting an unverified retry.
+
+### Preserved obligations and work outside this path
+
+RF08 integrated consumer acceptance, RF11 adoption, full capacity/parking proof,
+and RF09/Q20 short-sleep continuity remain open. The corrected long-suspend
+source-revision pass does not close exact-release or short-sleep acceptance.
+Q26 quarantine remains unsupported or separately scoped until explicitly
+resolved. RF12/RF13 historical receipts do not qualify newer artifacts.
+Peer namespace reconciliation also remains open: prove ownership and reconcile
+an actual stale namespace rather than treating it as equivalent. The existing
+[lifecycle delivery plan](./2026-10-29-lifecycle-delivery-plan.md) retains the
+delivered stop-repair evidence and the proposed repository-relative recovery
+documentation reference; neither authorizes arbitrary bootstrap execution.
+
+Preview/cloud work, disk reclamation and broader provider/dependency breadth
+retain their owners and are not prerequisites for the next ordinary-startup
+outcome. Shared reviewer routing, review-result classification, worktree task
+binding and context overhead stay in the
+[shared-tooling follow-ups](./2026-10-29-managed-fresh-bootstrap-plan.md#shared-routing-and-orchestration-follow-ups--2026-10-30).
+Fixture destination/provider/alias validation directly supports qualification;
+reuse that existing item. Do not make a global orchestration rewrite a
+prerequisite for fixing the product path.
+
+Current source delivery: draft PR #169 at
+`e138da8e5bf0fc18aff8c1741bdbf4ec2d6b4e50` contains the reproduced repair-refusal
+correction. Eligibility and missing linked identity are checked before
+preparation; only the owned early known refusal completes with exit 1. Later
+ownership checks and unknown-completion safeguards remain intact. Independent
+final review and [exact-head CI](https://github.com/rschlaefli/devrouter/actions/runs/41045651785)
+pass. The recorded full suite passed 3,483 tests with 13 platform skips; final
+focused checks passed 295 tests, and the exact installed candidate passed 33
+synthetic lifecycle cases. Package and source checks passed. These are recorded
+producing results, not tests rerun by this roadmap update. Evidence is recorded by the
+[lifecycle delivery plan](./2026-10-29-lifecycle-delivery-plan.md#ordinary-startup-refusal-correction--2026-10-30).
+The final receipt is `docs/project/_local/reviews/2026-10-30-refocus-delivery-evidence.json`
+in the existing task worktree; it supersedes earlier pending entries in that
+plan. The candidate is unmerged and unreleased. Later live Devsy acquisition and
+replacement qualification pass through the approved verified-cache path.
+Actual consumer acceptance remains open.
+
+The side-chat investigation changed only this current-direction section. The
+main Devrouter owner retains the execution record and next implementation batch.
+The task-binding helper still rejected the verified nested worktree plan; that
+shared-tooling limitation was observed without loosening its validator.
+
+### Main-session goal and independent continuation — 2026-10-30
+
+**Goal:** make ordinary `devrouter ensure <checkout> --profile <profile> --json`
+sufficient for the affected retained-environment journey: reach verified
+application readiness through bounded, preserving recovery, or return a precise,
+validated next action without journal inspection or repair-flag guessing.
+Qualify the intended provider combination, deliver the verified correction
+through authorized release and installation steps, and close the incident with
+owner-verified consumer acceptance. A truthful refusal is a valid safety outcome;
+it does not by itself close a consumer incident requiring a working environment.
+
+**Resume point and authority:** reuse `trees/rs/lifecycle-delivery`, branch
+`rs/fresh-bootstrap-devsy-124`, the two linked execution plans and draft PR #169.
+Refresh remote/head/worktree evidence before mutation and preserve concurrent
+owner changes. This side conversation authorizes this roadmap update, not new
+runtime, merge, release, installation or messaging effects. Recover the actual
+main-session user instructions behind each existing delivery approval once,
+record the references in the active execution plan, and continue their scope
+without repeated generic approval requests. A plan or handoff is not authority.
+The existing native goal is active on main-session readback. Its objective is
+the ordinary retained-environment journey described above; no replacement goal
+was created. The earlier blocked-state report is historical.
+
+1. **Select and reproduce the consumer path.** Inventory already-passing source
+   and installed evidence before adding work. Use a pilot-shaped retained
+   synthetic fixture to exercise ordinary ensure, a useful application operation,
+   the relevant fault, preserving recovery, and stop/resume. Establish hook
+   preservation, exact destination/provider identifiers and protected neighbour
+   before effects. Reuse valid receipts; rerun only changed or unqualified seams.
+   Complete this step when the ordinary path works or its specific product gap
+   has a reproducer and a bounded correction in the existing lifecycle machinery.
+2. **Resolve provider acquisition.** Capture exact CLI/provider/agent versions,
+   architecture, verified cache provenance and sanitized per-source acquisition
+   errors. The existing aggregate `agent binary not found` log does not identify
+   the failed source. Use a bounded isolated qualification under existing runtime
+   authority and the supported verified-cache/setup contract. Any required shared
+   setup change is a separate decision with an exact target and effect. Completion
+   requires successful intended replacement and preservation checks, or a precise
+   supported prerequisite/refusal with compatibility still explicitly unqualified.
+3. **Choose delivery from evidence.** If the provider gate passes, finish the
+   compatible candidate's applicable review, package checks and exact-head CI,
+   then perform only the merge/release/installation sequence covered by recovered
+   authority. If acquisition remains blocked, assess whether the independent
+   refusal correction can ship while retaining the previously qualified provider
+   boundary. Prepare and verify that bounded source alternative without claiming
+   Devsy 1.24.0 support; a changed release scope or delivery authority must be
+   resolved before publication. A provider blocker must not prevent independent
+   diagnostics, regression coverage or a reviewable source correction.
+4. **Obtain installed consumer acceptance.** Existing consumer owners retain
+   their runtime lanes. Under recovered coordination authority, supply the exact
+   artifact, supported provider combination, preserving prerequisites and a
+   concise acceptance sequence. Verify publication and the selected executable
+   separately. Require an owner receipt for ordinary startup, actual application
+   work, relevant recovery, retained data, stop/resume and neighbour functionality.
+   Record unknown or pending outcomes explicitly; an unavailable owner blocks
+   consumer closure, not independent source/package work.
+
+**Terminal evidence:** reviewed source revision and required CI; exact packed,
+published and selected-installed artifact identities where delivery is authorized;
+provider qualification for the claimed combination; and an affected consumer's
+successful ordinary journey with zero unauthorized data changes, initialization
+replay, duplicate uncertain dispatch or neighbour disruption. Broader portability
+claims require a second distinct consumer or enforcing harness. If a dependent
+gate cannot pass, preserve the completed evidence, exact blocker, owner and
+supported next action; keep the unmet acceptance open rather than declaring the
+goal complete. Continue all independent authorized steps before yielding.
+
+Keep sleep/capacity qualification, preview, cleanup and shared orchestration
+follow-ups in their existing lanes unless new evidence makes one necessary for
+this consumer path. Update this current-status section and the existing execution
+plan when evidence changes; avoid another status index or duplicate plan root.
 
 ## Approval summary
+
+Historical approval and baseline follow. The current goal, checkout, delivery
+status and acceptance above supersede historical version and active-goal claims;
+the original obligations and actual user authority remain distinct.
 
 The user approved execution of the complete consolidated reliability roadmap
 through a stable 0.1.0 release on 2026-09-13. This is an **executable batch**.
@@ -4956,3 +5166,21 @@ Passing post-wake assertions do not repair the missing pre-suspend evidence.
 Q20 remains live-open. A corrected verifier and a fresh run with a healthy
 pre-suspend session and unchanged executable are required. Q26 remains a
 separate disposition decision.
+
+
+## Shared tooling follow-ups — 2026-10-30
+
+Open: the user requested role/default resolution, launch/transport/review outcome
+classification, scoped context/diagnostics, worktree-aware task binding and
+fixture input preflight. Their owners, evidence distinctions and acceptance
+checks are recorded once in the active [managed initialization plan](./2026-10-29-managed-fresh-bootstrap-plan.md#shared-routing-and-orchestration-follow-ups--2026-10-30).
+These are primarily shared routing/orchestration gaps. Existing Devrouter lint,
+type, test and package CI checks remain in place. Recording these priorities does
+not authorize shared setup/configuration changes or imply consumer recovery.
+
+
+The Devsy1.24 compatibility candidate remains draft PR169. Its source/native,
+review and initial lifecycle proofs pass, but a corrected provider replacement
+failed agent acquisition. Supported recovery retained data and stopped every
+task runtime. The [qualification checkpoint](./2026-10-29-managed-fresh-bootstrap-plan.md#devsy-1240-qualification-checkpoint--release-held)
+keeps that provider gap open; no0.6.3 release or consumer unblocking is claimed.

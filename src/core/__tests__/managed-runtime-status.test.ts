@@ -808,6 +808,8 @@ describe("collectManagedRuntimeStatus", () => {
     const recovery = result.reliability?.attention?.recovery.join(" ") ?? "";
     expect(recovery).toContain(`devrouter stop ${repoPath}`);
     expect(recovery).toContain(`devrouter ensure ${repoPath}`);
+    const nextStart = result.reliability?.attention?.recovery.at(-1)?.replace(/^Run: /, "");
+    expect(nextStart?.split(" ")).toEqual(["devrouter", "ensure", repoPath]);
   });
 
   it("reports a refused managed start as an actionable obstruction", () => {

@@ -2275,6 +2275,61 @@ describe("reliability lifecycle supervision", () => {
     expect(store.readReliabilityOperation(identity)).toMatchObject({ effectSequence: 1 });
   });
 
+  it("records an owned early repair refusal as a failed completion", async () => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedWorkerRequest();
+    request.options.repair = true;
+    const failure = { ok: false as const, message: "synthetic eligibility refusal" };
+    await lifecycle.executeLifecycleWorker(request, async () => {
+      lifecycle.recordLifecycleRefusal(failure);
+    });
+    expect(store.readReliabilityOperation(identity)).toMatchObject({
+      state: { operation: { status: "COMPLETED", exitCode: 1, drained: false } },
+      result: failure,
+      worker: { id: request.workerId },
+    });
+  });
+
+  it.each([
+    "cancelled",
+    "disconnected",
+    "worker",
+    "fence",
+    "operation",
+    "terminal",
+    "ordinary",
+  ])("does not complete a refusal after %s changed", async (changed) => {
+    setProcessConnected(true);
+    const { lifecycle, request, store, identity } = await seedWorkerRequest();
+    request.options.repair = true;
+    await lifecycle.executeLifecycleWorker(request, async () => {
+      if (changed === "cancelled") lifecycle.cancelLifecycleWorker();
+      if (changed === "ordinary") request.options.repair = false;
+      if (changed === "fence") request.fence.intentRevision += 1;
+      if (changed === "operation") request.operationId = "another-operation";
+      if (changed === "terminal") lifecycle.recordLifecycleUnknown();
+      if (changed === "worker")
+        store.updateReliabilityOperation(identity, (record) => {
+          if (record.worker) record.worker.id = "another-worker";
+        });
+      const before = store.readReliabilityOperation(identity);
+      try {
+        if (changed === "disconnected") setProcessConnected(false);
+        lifecycle.recordLifecycleRefusal({ ok: false, message: "synthetic refusal" });
+      } finally {
+        if (changed === "disconnected") setProcessConnected(true);
+      }
+      const after = store.readReliabilityOperation(identity);
+      if (["cancelled", "disconnected", "ordinary"].includes(changed)) {
+        expect(after?.state.operation).toMatchObject({ status: "INTERRUPTED", exitCode: null });
+      } else {
+        expect(after?.state).toEqual(before?.state);
+        expect(after?.result).toEqual(before?.result);
+      }
+      expect(after?.worker).toEqual(before?.worker);
+    });
+  });
+
   it.each([
     0, 1,
   ])("retains a prepared profile independently of application exit %s", async (exitCode) => {
