@@ -30,12 +30,26 @@ blocked. The
 [fresh-bootstrap plan](./2026-10-29-managed-fresh-bootstrap-plan.md#progress)
 owns the producing evidence and historical failed qualification.
 
-A second receiving owner has verified 0.6.3 adoption but holds consumer startup:
-its required managed app-container replacement has no public command in 0.6.3.
-The producer used internal locked APIs, which do not establish that contract.
-The [proposed explicit replacement batch](./2026-10-29-managed-fresh-bootstrap-plan.md#proposed-public-managed-application-replacement--2026-10-30)
-records the smallest extension and new approval boundary. Retained Compose
-overlay apply/restore remains a distinct unqualified transition.
+The receiving replacement owner has verified 0.6.3 adoption but holds startup:
+that release has no public managed app-container replacement command.
+[PR #171](https://github.com/rschlaefli/devrouter/pull/171) now supplies
+`ensure --replace-app`, merged at `d2fba69eaad9bc6464d412776e9241b66ea33f32`.
+Its complete tree equals reviewed `f84a174f`; both
+[exact-head CI](https://github.com/rschlaefli/devrouter/actions/runs/41116673607)
+and [merged-main CI](https://github.com/rschlaefli/devrouter/actions/runs/41121149134)
+pass. Independent review, packed-byte verification and the one approved synthetic
+replacement completed, ending canonically stopped with retained data. This is
+merged source, not publication, installation or receiving-consumer recovery.
+The [bootstrap plan](./2026-10-29-managed-fresh-bootstrap-plan.md#progress)
+owns that evidence.
+
+A third consumer needs retained Compose isolation and restoration, which primary
+replacement does not provide. Its separately reviewed
+[maintenance plan](https://github.com/rschlaefli/devrouter/blob/rs/retained-maintenance-plan/docs/project/2026-10-30-retained-maintenance-transition-plan.md)
+now has approval for finite source-only feasibility. The Devrouter owner must
+return executable contract evidence and a reviewed implementation-ready contract,
+or the exact provider/API/compatibility blocker. Public maintenance implementation,
+runtime/data effects and later delivery remain separate gates.
 
 This front section replaces the older current-status table and priority order.
 Historical execution records below remain evidence, not current completion
@@ -44,6 +58,31 @@ acceptance is missing. The user requested this investigation and roadmap refocus
 on 2026-10-30; this revision changes planning only. Existing owners retain source,
 runtime and delivery authority. No new implementation, installation, release,
 consumer mutation or provider-configuration action is performed by this revision.
+
+### Review disposition and next authorized work — 2026-10-30
+
+The requested Opus 5.5 progress/roadmap consultation completed with concerns.
+Main-session source verification corrected its possible missing-documentation
+concern: the owning manual, bundled skill and AI prompt already include
+`--replace-app`. Merged-tree equality and merged-main CI are now verified.
+The remaining recommendations are recorded here without creating new authority.
+
+| Work | Next acceptance and owner | Authority and boundary |
+| --- | --- | --- |
+| Retained maintenance feasibility | Prove attempt-bound command/descendant cessation through existing exec/helper seams first; then selected-service apply, hook control, session rebinding and old-client/no-replay guards. Devrouter owner. | Source-only batch approved. Return a reviewed contract or exact blocker. A profile alone does not establish the promised network/port isolation. |
+| Replacement release preparation | Use the actual future writer version to verify expected older-reader refusal and retained receipts. Disclose the one-attempt-per-environment limit, adoption and downgrade constraints. Devrouter release owner. | Source evidence is complete; named release/publication/installation authority remains necessary. Reuse the unchanged candidate and synthetic proof. |
+| Consumer acceptance | Receiving replacement owner proves supported installed adoption and its own bounded useful-work journey; pilot owner proves its corrected PWA acceptance. | Their approvals, CI exceptions and runtime/data effects stay with their owners. Neither lane is closed by the source merge. |
+| Repeat replacement and shared tooling | Keep a proposed newer-stopped-generation contract for repeat replacement, preserving no-replay and unknown outcomes. Shared routing, result classification, task binding and fixture validation keep their recorded owners. | Proposed follow-ups; no receipt deletion, new supervisor, global routing rewrite or consumer takeover. |
+
+Existing drafts [#163](https://github.com/rschlaefli/devrouter/pull/163),
+[#166](https://github.com/rschlaefli/devrouter/pull/166) and
+[#130](https://github.com/rschlaefli/devrouter/pull/130) are recorded as folded
+into later deliveries. Verify their residual deltas before proposing closure.
+The historical direction roadmap [#57](https://github.com/rschlaefli/devrouter/pull/57)
+and delivery record [#44](https://github.com/rschlaefli/devrouter/pull/44)
+remain disposition candidates, not new implementation priorities. Closing or
+changing their state needs named authority. Reuse this documentation PR for
+status reconciliation; do not recreate the removed project index.
 
 ### Evidence and the delivery gap
 
@@ -191,7 +230,7 @@ Fresh initialization stays separately explicit; database identity alone does
 not prove both target schemas empty. Prefer existing preserving-hook composition
 where it meets the required contract.
 
-The side-chat investigation changed only this current-direction section. The
+The original side-chat investigation changed only this current-direction section. The
 main Devrouter owner retains the execution record and next implementation batch.
 The task-binding helper still rejected the verified nested worktree plan; that
 shared-tooling limitation was observed without loosening its validator.
@@ -216,9 +255,10 @@ runtime, merge, release, installation or messaging effects. Recover the actual
 main-session user instructions behind each existing delivery approval once,
 record the references in the active execution plan, and continue their scope
 without repeated generic approval requests. A plan or handoff is not authority.
-The existing native goal is active on main-session readback. Its objective is
-the ordinary retained-environment journey described above; no replacement goal
-was created. The earlier blocked-state report is historical.
+Current native-goal readback is blocked on the broader consumer outcome. Its
+objective remains the ordinary retained-environment journey above; no replacement
+goal was created. The separately approved source-only feasibility batch can
+continue without claiming the broader goal active or complete.
 
 1. **Select and reproduce the consumer path.** Inventory already-passing source
    and installed evidence before adding work. Use a pilot-shaped retained

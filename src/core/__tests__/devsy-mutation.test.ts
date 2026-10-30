@@ -347,6 +347,39 @@ describe("Devsy mutation adapter", () => {
 });
 
 describe("startDevsyWorkspace", () => {
+  it("refuses a replacement before provider dispatch when its fenced preflight fails", async () => {
+    vi.mocked(spawnSync).mockImplementation((command, args) =>
+      command === "devsy" && args?.[1] === "list"
+        ? listResult()
+        : ({ status: 0, stdout: "", stderr: "" } as never),
+    );
+    const beforeDispatch = vi.fn(() => {
+      throw new Error("changed stopped generation");
+    });
+    const afterStart = vi.fn();
+    await expect(
+      startDevsyWorkspace({
+        repoPath: "/repo/feature",
+        devsyId: "feature",
+        recreate: true,
+        appReplacement: {
+          binding: {
+            provider: "devsy",
+            providerId: "feature",
+            providerContext: "default",
+            endpoint: "unix:///tmp/fixture.sock",
+            daemonId: "fixture",
+            definitionSha256: "a".repeat(64),
+          },
+          beforeDispatch,
+          afterStart,
+        },
+      }),
+    ).rejects.toThrow("changed stopped generation");
+    expect(beforeDispatch).toHaveBeenCalledOnce();
+    expect(spawn).not.toHaveBeenCalled();
+    expect(afterStart).not.toHaveBeenCalled();
+  });
   const freshBinding = {
     provider: "devsy" as const,
     providerId: "feature",

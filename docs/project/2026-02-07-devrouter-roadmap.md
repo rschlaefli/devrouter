@@ -6,9 +6,19 @@ Use the [documentation map](../README.md) for supported behavior, [AGENTS.md](..
 
 ## Next package
 
-The current local reliability package is [evidence and stop recovery](./2026-10-26-reliability-evidence-repair.md).
 The [reliability acceptance roadmap](./2026-09-13-reliability-release-plan.md)
-owns the remaining integrated canary, host-suspend and consumer evidence.
+owns current priorities, delivery layers and the remaining integrated canary,
+host-suspend and consumer evidence. The earlier
+[evidence and stop-recovery package](./2026-10-26-reliability-evidence-repair.md)
+is delivered source with explicitly open live acceptance, not the next source fix.
+
+Primary-only replacement is merged through
+[PR #171](https://github.com/rschlaefli/devrouter/pull/171), with passing
+merged-main CI; it remains outside published 0.6.3. The next approved product
+work is retained-maintenance source-only feasibility under its existing owner.
+Release, installation and each consumer's runtime acceptance retain their
+separate authority. Repeat replacement and the shared-tooling improvements are
+proposed follow-ups in the acceptance roadmap, not implicit execution scope.
 
 W2 — [Workspace resource accounting](./2026-08-16-workspace-resource-accounting-roadmap.md)
 was delivered in [PR #30](https://github.com/rschlaefli/devrouter/pull/30),

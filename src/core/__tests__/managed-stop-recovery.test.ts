@@ -1,14 +1,18 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   assertManagedContainerConfigUnchanged,
+  inspectManagedDevcontainerConfig,
+  inspectManagedDevcontainerGeneratedConfig,
   type ManagedDevcontainerPlan,
 } from "../devcontainer-profile";
 import * as docker from "../devpod-environment";
 import { listDevpodWorkspacesRaw } from "../devpod-registry";
 import { stopRetainedManagedDevsyWorkspace } from "../managed-devsy-stop";
+import { resolveManagedPostStartPlan } from "../managed-post-start";
 import {
   type ManagedRuntimeState,
   managedRuntimeStatePath,
@@ -16,12 +20,21 @@ import {
   writeManagedRuntimeState,
 } from "../managed-runtime-state";
 import {
+  captureManagedAppReplacementProof,
   captureManagedStopBaseline,
+  captureReplacedAppStopState,
   proveManagedStop,
   proveRetainedManagedStop,
   recoverManagedStopBaseline,
   stopFromManagedBaseline,
 } from "../managed-stop-recovery";
+import { inspectNetworkProviderBinding } from "../network-provider-inspect";
+import { loadRuntimeConfig } from "../repo-config";
+
+vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }));
+vi.mock("../devsy-agent", () => ({ requireReadyDevsyAgent: () => ({ version: "1.24.0" }) }));
+vi.mock("../managed-post-start", () => ({ resolveManagedPostStartPlan: vi.fn() }));
+vi.mock("../network-provider-inspect", () => ({ inspectNetworkProviderBinding: vi.fn() }));
 
 const fixture = vi.hoisted(() => ({
   home: "",
@@ -49,6 +62,9 @@ vi.mock("../router", () => ({
 }));
 vi.mock("../devcontainer-profile", () => ({
   assertManagedContainerConfigUnchanged: vi.fn(),
+  inspectManagedDevcontainerConfig: vi.fn(),
+  inspectManagedDevcontainerGeneratedConfig: vi.fn(),
+  managedComposeEnvironment: () => ({ ...process.env }),
 }));
 vi.mock("../devpod-environment", () => ({
   assertManagedStopContainersAbsent: vi.fn(),
@@ -59,6 +75,8 @@ vi.mock("../devpod-environment", () => ({
   inspectManagedStopWorkspaceIds: vi.fn(),
   resolveManagedStopEndpoint: vi.fn(),
   stopPinnedManagedContainer: vi.fn(),
+  inspectAppReplacementInventory: vi.fn(),
+  assertNoAppNamespaceConsumers: vi.fn(),
 }));
 vi.mock("../devsy-workspaces", async (original) => ({
   ...(await original<typeof import("../devsy-workspaces")>()),
@@ -89,9 +107,9 @@ vi.mock("../workspace-ownership", () => ({
 vi.mock("../reliability-context", () => ({ claimLifecycleEffect: fixture.claim }));
 vi.mock("../route-publication", () => ({ proxyAppsFromConfig: vi.fn() }));
 vi.mock("../repo-config", () => ({
-  loadRuntimeConfig: () => {
+  loadRuntimeConfig: vi.fn(() => {
     throw new Error("Synthetic mutable configuration is unavailable");
-  },
+  }),
 }));
 
 const endpoint = "unix:///synthetic/docker.sock";
@@ -196,6 +214,150 @@ afterEach(() => {
   delete process.env.DEVSY_HOME;
   delete process.env.DOCKER_PATH;
   fs.rmSync(fixture.home, { recursive: true, force: true });
+});
+
+describe("managed app replacement preservation", () => {
+  function stopped() {
+    const repo = path.join(fixture.home, "repo");
+    fs.mkdirSync(path.join(repo, ".devcontainer"), { recursive: true });
+    const old = state.repoPath;
+    state.repoPath = repo;
+    state.status = "ready";
+    fixture.owner.source.localFolder = repo;
+    plan.sourcePath = path.join(repo, ".devcontainer/devcontainer.json");
+    plan.composeDirectory = path.join(repo, ".devcontainer");
+    plan.composeFiles = [path.join(plan.composeDirectory, "compose.yml")];
+    for (const file of [path.join(repo, ".devrouter.yml"), plan.sourcePath, ...plan.composeFiles])
+      fs.writeFileSync(file, "synthetic");
+    for (const c of containers) {
+      c.state.Running = false;
+      c.state.Status = "exited";
+      c.labels["com.docker.compose.project.working_dir"] = plan.composeDirectory;
+      c.labels["com.docker.compose.project.config_files"] = plan.composeFiles.join(",");
+      for (const m of c.mounts) if (m.Source === old) m.Source = repo;
+    }
+    containers[0].mounts.push({
+      Type: "volume",
+      Source: "/synthetic/volumes/cache",
+      Destination: "/cache",
+    });
+    persist();
+    state = readManagedRuntimeState(repo)!;
+    vi.mocked(inspectManagedDevcontainerConfig).mockReturnValue(plan);
+    vi.mocked(inspectManagedDevcontainerGeneratedConfig).mockReturnValue({ status: "valid" });
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: { managedRuntime: {} },
+      profile: state.profile,
+    } as never);
+    vi.mocked(resolveManagedPostStartPlan).mockReturnValue({
+      kind: "runtime",
+      adapterPath: "adapter",
+      adapterContents: Buffer.from("synthetic"),
+      adapterSha256: "f".repeat(64),
+    });
+    vi.mocked(inspectNetworkProviderBinding).mockReturnValue({
+      versionQualified: true,
+      registration: "owned",
+      providerName: "docker",
+      dockerPath: "docker",
+      persistedContext: null,
+      persistedEndpoint: endpoint,
+      daemonId: "synthetic-daemon",
+      definitionSha256: "f".repeat(64),
+    } as never);
+    vi.mocked(docker.inspectAppReplacementInventory).mockImplementation(() =>
+      containers.map((c) => ({
+        id: c.id,
+        name: `/${c.labels["com.docker.compose.service"]}`,
+        image: `sha256:${"9".repeat(64)}`,
+        namespaces: { NetworkMode: "default", PidMode: "", IpcMode: "private" },
+        mounts: c.mounts.map((m) => ({
+          ...m,
+          ...(m.Type === "volume" ? { Name: "fixture-cache" } : {}),
+        })),
+      })),
+    );
+    vi.mocked(spawnSync).mockImplementation(
+      (command, args) =>
+        ({
+          status: 0,
+          stdout:
+            command === "git"
+              ? args?.includes("rev-parse")
+                ? "e".repeat(40)
+                : ""
+              : JSON.stringify({
+                  services: {
+                    app: { volumes: [{ type: "volume", source: "cache", target: "/cache" }] },
+                  },
+                  volumes: { cache: { name: "fixture-cache" } },
+                }),
+        }) as never,
+    );
+  }
+
+  it("captures the changed primary and retained dependencies before application startup", () => {
+    stopped();
+    const proof = captureManagedAppReplacementProof(state);
+    containers[0].id = "e".repeat(64);
+    const candidate = captureReplacedAppStopState(proof);
+    expect(candidate.status).toBe("degraded");
+    expect(candidate.stopBaseline?.containers.map((c) => c.id)).toEqual([
+      "e".repeat(64),
+      "d".repeat(64),
+    ]);
+    expect(candidate.stopBaseline?.containers[0].mounts).toEqual(
+      state.stopBaseline?.containers[0].mounts,
+    );
+    expect(readManagedRuntimeState(state.repoPath)).toEqual(candidate);
+  });
+
+  it("refuses changed source after dispatch without overwriting the old baseline", () => {
+    stopped();
+    const proof = captureManagedAppReplacementProof(state);
+    fs.writeFileSync(plan.composeFiles[0], "changed");
+    containers[0].id = "e".repeat(64);
+    expect(() => captureReplacedAppStopState(proof)).toThrow();
+    expect(readManagedRuntimeState(state.repoPath)).toEqual(state);
+  });
+
+  it.each([
+    "running",
+    "anonymous",
+    "no-anchor",
+    "changed-config",
+    "changed-dependency",
+  ])("refuses %s without losing retained evidence", (reason) => {
+    stopped();
+    if (reason === "running") containers[0].state.Running = true;
+    if (reason === "anonymous") {
+      const read = vi.mocked(docker.inspectAppReplacementInventory).getMockImplementation()!;
+      vi.mocked(docker.inspectAppReplacementInventory).mockImplementation((ep) =>
+        read(ep).map((c) => ({
+          ...c,
+          mounts: c.mounts.map((m) => ({
+            ...m,
+            ...(m.Type === "volume" ? { Name: "undeclared" } : {}),
+          })),
+        })),
+      );
+    }
+    if (reason === "no-anchor") {
+      containers = containers.slice(0, 1);
+      state.stopBaseline!.containers = state.stopBaseline!.containers.slice(0, 1);
+      state.stopBaseline!.requiredServices = ["app"];
+      writeManagedRuntimeState(state);
+    }
+    if (reason === "changed-config")
+      vi.mocked(inspectManagedDevcontainerGeneratedConfig).mockReturnValue({ status: "drifted" });
+    if (reason === "changed-dependency") {
+      const proof = captureManagedAppReplacementProof(state);
+      containers[0].id = "e".repeat(64);
+      containers[1].id = "f".repeat(64);
+      expect(() => captureReplacedAppStopState(proof)).toThrow();
+    } else expect(() => captureManagedAppReplacementProof(state)).toThrow();
+    expect(readManagedRuntimeState(state.repoPath)).toEqual(state);
+  });
 });
 
 describe("retained stop ownership", () => {

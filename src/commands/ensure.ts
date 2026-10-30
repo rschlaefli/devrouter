@@ -8,6 +8,7 @@ export async function runEnsureCommand(options: {
   variant?: string;
   repair?: boolean;
   initializeNew?: boolean;
+  replaceApp?: boolean;
   open?: boolean;
   json?: boolean;
 }): Promise<void> {
@@ -18,6 +19,7 @@ export async function runEnsureCommand(options: {
     profile: options.profile,
     ...(options.repair ? { repair: true } : {}),
     ...(options.initializeNew ? { initializeNew: true } : {}),
+    ...(options.replaceApp ? { replaceApp: true } : {}),
     ...(options.variant !== undefined ? { variant: options.variant } : {}),
   };
   const result = (await superviseLifecycle(
