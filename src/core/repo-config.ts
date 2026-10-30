@@ -765,7 +765,7 @@ function parseManagedRuntime(
   );
   ensureAllowedKeys(
     devcontainer,
-    ["baseServices", "profileServices", "prepareCommand", "hostPorts"],
+    ["baseServices", "profileServices", "prepareCommand", "hostPorts", "freshBootstrap"],
     `${configPath}.managedRuntime.devcontainer`,
   );
   const baseServices = parseRequiredUniqueStringArray(
@@ -780,6 +780,29 @@ function parseManagedRuntime(
     devcontainer.prepareCommand,
     `${configPath}.managedRuntime.devcontainer.prepareCommand`,
   );
+  let freshBootstrap: DevrouterManagedRuntime["devcontainer"]["freshBootstrap"];
+  if (devcontainer.freshBootstrap !== undefined) {
+    const label = `${configPath}.managedRuntime.devcontainer.freshBootstrap`;
+    const raw = ensureObject(devcontainer.freshBootstrap, label);
+    ensureAllowedKeys(raw, ["command", "dataVolumes", "sharedCaches"], label);
+    const command = parsePrepareCommand(raw.command, `${label}.command`);
+    if (!command) throw new Error(`${label}.command is required.`);
+    const dataVolumes = parseRequiredUniqueStringArray(raw.dataVolumes, `${label}.dataVolumes`);
+    const sharedCaches =
+      raw.sharedCaches === undefined
+        ? []
+        : parseRequiredUniqueStringArray(raw.sharedCaches, `${label}.sharedCaches`);
+    if (dataVolumes.length === 0 || dataVolumes.length + sharedCaches.length > 64)
+      throw new Error(`${label} requires data volumes and at most 64 volume bindings.`);
+    if (
+      [...dataVolumes, ...sharedCaches].some(
+        (key) => !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(key),
+      ) ||
+      dataVolumes.some((key) => sharedCaches.includes(key))
+    )
+      throw new Error(`${label} requires distinct exact data-volume and shared-cache keys.`);
+    freshBootstrap = { command, dataVolumes, sharedCaches };
+  }
   const baseSet = new Set(baseServices);
   const overlappingServices = profileServices.filter((service) => baseSet.has(service));
   if (overlappingServices.length > 0) {
@@ -849,6 +872,7 @@ function parseManagedRuntime(
       profileServices,
       ...(prepareCommand ? { prepareCommand } : {}),
       ...(hostPorts !== undefined ? { hostPorts } : {}),
+      ...(freshBootstrap ? { freshBootstrap } : {}),
     },
     processes,
   };

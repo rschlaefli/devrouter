@@ -32,6 +32,7 @@ export type ControllerOperationSubmitInput =
       requestId: string;
       kind: "ensure";
       operation?: string;
+      initializeNew?: true;
     })
   | (ControllerOperationBinding & {
       requestId: string;

@@ -15,6 +15,7 @@ import {
   clearStartupWitness,
   createLifecycleCapacityStore,
   enrollStoppedLifecycle,
+  type FreshBootstrapAttempt,
   listReliabilityOperations,
   publishStartupWitness,
   type ReliabilityConsumerProtection,
@@ -86,6 +87,77 @@ describe("reliability record version skew", () => {
     delete record.writtenByVersion;
     fs.writeFileSync(file, `${JSON.stringify(record)}\n`);
     expect(() => readReliabilityOperation(identity)).not.toThrow();
+  });
+});
+
+describe("durable fresh-bootstrap fence", () => {
+  const attempt = (record: ReliabilityOperationRecord): FreshBootstrapAttempt => ({
+    version: 1,
+    operationId: "synthetic-initialization",
+    workerId: "synthetic-worker",
+    runtimeGeneration: record.state.runtimeGeneration,
+    sourceSha256: "a".repeat(64),
+    providerId: "synthetic-provider",
+    providerContext: "default",
+    definitionSha256: "b".repeat(64),
+    endpoint: "unix:///tmp/synthetic-docker.sock",
+    daemonId: "synthetic-daemon",
+    previousVolumeNameDigests: ["c".repeat(64)],
+    stage: "claimed",
+  });
+
+  it("preserves the attempt through serialization, stop intent and history rollover", () => {
+    const original = updateReliabilityOperation(identity, (record) => {
+      record.freshBootstrap = attempt(record);
+      return record.freshBootstrap;
+    });
+    expect(readReliabilityOperation(identity)?.freshBootstrap).toEqual(original);
+    updateReliabilityOperation(identity, (record) => {
+      record.state = stepReliability(
+        record.state,
+        { ...reliabilityFence(record.state), type: "stop" },
+        Date.now(),
+      ).state;
+      record.state.operationHistory = [];
+    });
+    expect(readReliabilityOperation(identity)?.freshBootstrap).toEqual(original);
+  });
+
+  it.each([
+    { stage: "initializing" },
+    { stage: "rearm" },
+    { previousVolumeNameDigests: ["invalid"] },
+    { previousVolumeNameDigests: ["c".repeat(64), "c".repeat(64)] },
+    { endpoint: "tcp://remote:2375" },
+    { resetAllowed: true },
+  ])("refuses corrupted or incomplete initialization authority %#", (patch) => {
+    updateReliabilityOperation(identity, (record) => {
+      record.freshBootstrap = attempt(record);
+    });
+    const file = reliabilityOperationPath(identity);
+    const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+    Object.assign(raw.freshBootstrap, patch);
+    fs.writeFileSync(file, JSON.stringify(raw));
+    expect(() => readReliabilityOperation(identity)).toThrow();
+    expect(() => updateReliabilityOperation(identity, () => undefined)).toThrow();
+  });
+
+  it("prevents ordinary journal updates from clearing or replacing the fence", () => {
+    const original = updateReliabilityOperation(identity, (record) => {
+      record.freshBootstrap = attempt(record);
+      return record.freshBootstrap;
+    });
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        delete record.freshBootstrap;
+      }),
+    ).toThrow();
+    expect(() =>
+      updateReliabilityOperation(identity, (record) => {
+        if (record.freshBootstrap) record.freshBootstrap.operationId = "another-request";
+      }),
+    ).toThrow();
+    expect(readReliabilityOperation(identity)?.freshBootstrap).toEqual(original);
   });
 });
 

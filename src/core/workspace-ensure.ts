@@ -38,6 +38,7 @@ import {
 } from "./host-routes";
 import { httpRouteUrl, probeHttpRoute } from "./http-route-probe";
 import { reportLifecycleProgress } from "./lifecycle-progress";
+import { assertFreshBootstrapRequest, createFreshBootstrap } from "./managed-fresh-bootstrap";
 import { managedHostPortDeclarationsIdentity, resolveManagedHostPorts } from "./managed-host-ports";
 import { runManagedHostPreparation } from "./managed-host-preparation";
 import {
@@ -159,6 +160,7 @@ type WorkspaceEnsureOptions = {
   profile?: string;
   variant?: string;
   repair?: boolean;
+  initializeNew?: boolean;
   containerTimeoutMs?: number;
   httpTimeoutMs?: number;
 };
@@ -1038,6 +1040,7 @@ export async function workspaceEnsure(
     let repairMutationStarted = false;
     let retainedRepairContainers: WorkspaceContainerSnapshot[] = [];
     let environmentStarted = false;
+    let freshBootstrapPending = false;
     let managedPlan: ManagedDevcontainerPlan | undefined;
     let previousManagedState: ManagedRuntimeState | undefined;
     let managedComposeProject: string | undefined;
@@ -1068,6 +1071,18 @@ export async function workspaceEnsure(
           ? resolveLinkedTarget(repoPath)
           : resolvePrimaryTarget(repoPath);
       let devpodId = target.devpodId;
+      if (options.initializeNew) {
+        assertFreshBootstrapRequest(
+          {
+            repoPath,
+            workspace: target.workspace ?? null,
+            provider: resolveWorkspaceRuntimeOrDefault(repoPath),
+          },
+          options,
+        );
+        devpodId ??= wsFromBranch(path.basename(repoPath));
+        if (!devpodId) throw new Error("Fresh bootstrap requires an exact provider identifier.");
+      }
       if (target.kind === "linked") {
         const overlayPath = path.join(repoPath, ".devcontainer", DEVCONTAINER_OVERLAY);
         if (!fs.existsSync(overlayPath)) {
@@ -1279,6 +1294,27 @@ export async function workspaceEnsure(
         managedConfigWritten = true;
       }
       const upstreamHosts = parsedUpstreams.map((upstream) => upstream.host);
+      const freshBootstrap = options.initializeNew
+        ? createFreshBootstrap({
+            identity: { repoPath, workspace: target.workspace ?? null, provider: "devsy" },
+            ...(managedWorkspaceEnv ? { workspace: managedWorkspaceEnv } : {}),
+            plan: () => {
+              if (!managedPlan) throw new Error("Fresh bootstrap requires a managed Compose plan.");
+              return managedPlan;
+            },
+            profile: runtime.profile,
+            variant,
+            apps: apps.map((app) => app.name),
+            processes: desiredProcesses,
+            ...(hostPortDeclarationsSha256 !== undefined ? { hostPortDeclarationsSha256 } : {}),
+            onCaptured: (state, captured) => {
+              freshBootstrapPending = true;
+              capturedStopState = state;
+              managedContainer = captured;
+              managedComposeProject = state.composeProject;
+            },
+          })
+        : undefined;
       const currentTarget = (): EnvironmentTarget =>
         target.kind === "linked" ? target : { ...target, devpodId };
 
@@ -1293,6 +1329,7 @@ export async function workspaceEnsure(
             ...(network ? { prepareNetwork: network.prepare } : {}),
             recreate,
             quiet: options.quiet,
+            ...(freshBootstrap ? { freshBootstrap } : {}),
             ...(requestedTarget.kind === "linked"
               ? {
                   workspace: {
@@ -1303,6 +1340,7 @@ export async function workspaceEnsure(
               : {}),
           });
           environmentStarted = true;
+          freshBootstrapPending = false;
         } catch (error) {
           if (error instanceof DevpodStartPostconditionError) environmentStarted = true;
           throw error;
@@ -1828,6 +1866,9 @@ export async function workspaceEnsure(
           `${original} Reset candidate retained for recovery.${failures.length ? ` Recovery incomplete: ${failures.join("; ")}.` : " State is degraded."}`,
         );
       }
+      // Fresh bootstrap retained its proven degraded baseline before initialization;
+      // no managed process has been delivered for ordinary rollback to reconcile.
+      if (freshBootstrapPending) throw error;
       if (options.repair && !repairMutationStarted) throw error;
       if (options.repair && repairMutationStarted && previousManagedState && managedPlan) {
         const failures: string[] = [];

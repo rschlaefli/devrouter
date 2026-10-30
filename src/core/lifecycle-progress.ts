@@ -1,6 +1,7 @@
 const ROLES = {
   validation: "lifecycle-worker",
   preparation: "repository-preparation",
+  "fresh-bootstrap": "repository-fresh-bootstrap",
   provider: "provider-operation",
   "service-start": "service-reconciliation",
   "service-stop": "service-reconciliation",

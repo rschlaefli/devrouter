@@ -190,6 +190,7 @@ program
   .option("--profile <name>", "Start only this profile's apps/dependencies from .devrouter.yml")
   .option("--variant <name>", "Select a declared managed runtime variant")
   .option("--repair", "Repair a degraded managed runtime from its recorded profile")
+  .option("--initialize-new", "Initialize one fresh disposable managed environment explicitly")
   .option("--open", "Open HTTP routes after readiness succeeds")
   .option("--json", "Output JSON")
   .action(
@@ -198,6 +199,7 @@ program
         profile?: string;
         variant?: string;
         repair?: boolean;
+        initializeNew?: boolean;
         open?: boolean;
         json?: boolean;
       }>();
@@ -207,6 +209,7 @@ program
         profile: options.profile,
         variant: options.variant,
         repair: options.repair,
+        initializeNew: options.initializeNew,
         open: Boolean(options.open),
         json: Boolean(options.json),
       });
@@ -748,6 +751,7 @@ workspaceCommand
   .option("--profile <name>", "Start only this profile's apps/dependencies from .devrouter.yml")
   .option("--variant <name>", "Select a declared managed runtime variant")
   .option("--repair", "Repair a degraded managed runtime from its recorded profile")
+  .option("--initialize-new", "Initialize one fresh disposable managed environment explicitly")
   .option("--open", "Open HTTP routes after readiness succeeds")
   .option("--json", "Output JSON")
   .action(
@@ -757,6 +761,7 @@ workspaceCommand
           profile?: string;
           variant?: string;
           repair?: boolean;
+          initializeNew?: boolean;
           open?: boolean;
           json?: boolean;
         }>();
@@ -766,6 +771,7 @@ workspaceCommand
           profile: options.profile,
           variant: options.variant,
           repair: options.repair,
+          initializeNew: options.initializeNew,
           open: Boolean(options.open),
           json: Boolean(options.json),
         });

@@ -35,6 +35,56 @@ function readConfig(dir: string): string {
   return fs.readFileSync(path.join(dir, ".devrouter.yml"), "utf-8");
 }
 
+describe("managed fresh bootstrap declarations", () => {
+  let directory: string;
+  beforeEach(() => {
+    directory = makeTmpDir();
+  });
+  afterEach(() => fs.rmSync(directory, { recursive: true, force: true }));
+  function load(freshBootstrap: unknown) {
+    writeConfig(
+      directory,
+      JSON.stringify({
+        version: 1,
+        apps: [],
+        managedRuntime: {
+          processes: [],
+          devcontainer: { baseServices: [], profileServices: [], freshBootstrap },
+        },
+      }),
+    );
+    return loadRepoConfig(directory).managedRuntime?.devcontainer.freshBootstrap;
+  }
+
+  it("retains literal argv and separate data/cache bindings", () => {
+    const declaration = {
+      command: ["bash", ".devcontainer/post-create.sh", "--initialize-new-disposable", "$literal"],
+      dataVolumes: ["pgdata"],
+      sharedCaches: ["pnpm_store"],
+    };
+    expect(load(declaration)).toEqual(declaration);
+    expect(load({ command: ["bootstrap"], dataVolumes: ["data"] })).toEqual({
+      command: ["bootstrap"],
+      dataVolumes: ["data"],
+      sharedCaches: [],
+    });
+  });
+
+  it.each([
+    {},
+    { command: [], dataVolumes: ["data"] },
+    { command: "bootstrap", dataVolumes: ["data"] },
+    { command: ["bootstrap"], dataVolumes: [] },
+    { command: ["bootstrap"], dataVolumes: ["data", "data"] },
+    { command: ["bootstrap"], dataVolumes: ["../data"] },
+    { command: ["bootstrap"], dataVolumes: ["data"], sharedCaches: ["data"] },
+    { command: ["bootstrap"], dataVolumes: ["data"], sharedCaches: "cache" },
+    { command: ["bootstrap"], dataVolumes: ["data"], reset: true },
+  ])("refuses malformed or ambiguous declarations %#", (declaration) => {
+    expect(() => load(declaration)).toThrow();
+  });
+});
+
 describe("managed host preparation argv", () => {
   let directory: string;
   beforeEach(() => {

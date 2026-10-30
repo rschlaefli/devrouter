@@ -20,6 +20,7 @@ import {
 } from "./managed-devsy-stop";
 import {
   assertNetworkProviderBinding,
+  type NetworkProviderBinding,
   networkProviderEnvironment,
   networkProviderStartupArguments,
   type PrepareNetworkStart,
@@ -49,6 +50,15 @@ export type DevsyStartOptions = {
   recreate?: boolean;
   quiet?: boolean;
   workspace?: { token: string; gitCommonDir: string };
+  freshBootstrap?: {
+    prepare: (
+      providerId: string,
+      network?: NetworkProviderBinding,
+    ) => {
+      binding: NetworkProviderBinding;
+      afterStart: (resumeSourceHooks: () => Promise<void>) => Promise<void>;
+    };
+  };
 };
 
 export class DevsyStartPostconditionError extends Error {}
@@ -325,19 +335,23 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
     if (!devsyId && options.recreate) {
       throw new Error("Cannot recreate a Devsy workspace before its exact id is known.");
     }
+    if (options.freshBootstrap && (!devsyId || options.recreate))
+      throw new Error("Fresh bootstrap requires an explicit new provider ID without recreation.");
 
     if (options.prepareNetwork && !devsyId)
       throw new Error("Network allocation requires an exact provider ID before dispatch.");
     const network = options.prepareNetwork?.(devsyId as string);
     if (network)
       assertNetworkProviderBinding(network.binding, network.evidence, network.firstAllocation);
+    const fresh = options.freshBootstrap?.prepare(devsyId as string, network?.binding);
+    const binding = network?.binding ?? fresh?.binding;
     // Devsy derives the workspace id from the folder name on first use; the
     // explicit --id keeps linked-worktree identities stable across restarts.
     const args = ["workspace", "up", options.repoPath];
     if (devsyId) args.push("--id", devsyId);
     const devcontainerPath = network?.devcontainerPath ?? options.devcontainerPath;
     if (devcontainerPath) args.push("--devcontainer", devcontainerPath);
-    if (network) args.push(...networkProviderStartupArguments(network.binding));
+    if (binding) args.push(...networkProviderStartupArguments(binding));
     args.push("--ide-launch", "skip");
     if (options.workspace) {
       args.push(
@@ -353,9 +367,7 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
     args.push("--provider-option", "INACTIVITY_TIMEOUT=");
     if (options.recreate) args.push("--recreate");
 
-    const env = network
-      ? networkProviderEnvironment(network.binding, process.env)
-      : { ...process.env };
+    const env = binding ? networkProviderEnvironment(binding, process.env) : { ...process.env };
     // A newer host CLI governs its own agent; only a verified Devrouter agent is
     // injected, and an inherited value never survives without that verification.
     if (agent.binaryPath) env.DEVSY_AGENT_BINARY = agent.binaryPath;
@@ -373,7 +385,11 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
     }
 
     network?.beforeDispatch?.();
-    const result = await runDevsyUp(args, env, options.quiet ?? false);
+    const result = await runDevsyUp(
+      fresh ? [...args, "--skip-post-create", "--skip-post-start", "--skip-post-attach"] : args,
+      env,
+      options.quiet ?? false,
+    );
     if (result.status !== 0) {
       if (network) {
         network.retainUncertain();
@@ -406,6 +422,25 @@ export async function startDevsyWorkspace(options: DevsyStartOptions): Promise<s
         throw new Error(
           `Devsy did not attach '${options.repoPath}' as '${devsyId}' after startup.`,
         );
+      }
+      if (fresh) {
+        const exactId = devsyId;
+        await fresh.afterStart(async () => {
+          const resumed = await runDevsyUp(args, env, options.quiet ?? false);
+          if (resumed.status !== 0 || resumed.error)
+            throw new Error(
+              "Preserving source hooks failed after fresh initialization; data was retained.",
+            );
+          const current = inspectDevsyWorkspaceOwnership(
+            listDevsyWorkspaces(),
+            exactId,
+            options.repoPath,
+          );
+          if (current.status !== "owned")
+            throw new Error(
+              "Fresh-bootstrap provider ownership changed during source-hook replay.",
+            );
+        });
       }
       return devsyId;
     } catch (error) {

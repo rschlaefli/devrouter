@@ -46,6 +46,7 @@ export type LifecycleWorkerRequest = {
     profile?: string;
     variant?: string;
     repair?: boolean;
+    initializeNew?: boolean;
     open?: boolean;
     quiet?: boolean;
     delete?: boolean;

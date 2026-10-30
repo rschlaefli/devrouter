@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-30
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.6.2.md
+
+### Enhanced
+
+- Managed repositories can explicitly initialize a new disposable Devsy
+  environment with `ensure --initialize-new` and a literal `freshBootstrap`
+  declaration. Proven new local data volumes and exact ownership precede the
+  initializer; original preserving hooks and managed readiness follow it.
+- A durable initialization attempt survives stop, failure, cancellation,
+  replacement and journal settlement. Unknown evidence never enables replay.
+  Partial data remains retained for supported preserving recovery.
+- Controller admission carries explicit initialization intent. The initial
+  qualified context is Devsy 1.19.0 with the default environment probe and
+  supported local storage; unsupported contexts and retained resources refuse.
+
 ## [0.6.1] - 2026-10-29
 
 ### Agent Adaptation Prompt

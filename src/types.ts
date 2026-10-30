@@ -298,6 +298,11 @@ export type DevrouterManagedRuntime = {
     // Optional repository-owned preparation command, expressed as literal argv.
     prepareCommand?: string[];
     hostPorts?: Record<string, { service: string; target: number }>;
+    freshBootstrap?: {
+      command: string[];
+      dataVolumes: string[];
+      sharedCaches: string[];
+    };
   };
   // Complete registry of repository-managed process markers.
   processes: string[];
