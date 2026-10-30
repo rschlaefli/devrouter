@@ -123,6 +123,10 @@ six finding dispositions remain the detailed contract and reusable plan critique
   proof uses the actual tag, equal Git trees and complete package byte equality.
   The requesting recovery owner's notice could not be confirmed because its
   task host was unavailable; other authorized owner notices were delivered.
+- Later receiving evidence confirms task-local 0.6.3 and official Devsy 1.24.0
+  agent adoption. That owner's consumer has not started. Its required application
+  replacement has no supported public 0.6.3 entrypoint; the proposed extension
+  below records this newly verified acceptance gap.
 - The existing consumer owner delivered the approved preserving post-create
   adaptation at `79cd33357a18e0581ee480f0e1837dacef17a666` in
   [draft PR #6652](https://github.com/uzh-bf/klicker-uzh/pull/6652).
@@ -147,6 +151,11 @@ six finding dispositions remain the detailed contract and reusable plan critique
   stop is not rollback. The startup allowance is consumed. The consumer owner
   retains the SSR correction; a further runtime attempt requires a new bounded
   approval.
+- The consumer's focused SSR correction is now reviewed and pushed at
+  `28950b8c0a16cbc40d55d3d7b9642658ddf19d8e`. Real-hook source regressions and
+  isolated hydration pass. Actual corrected-head PWA checks and browser
+  acceptance remain pending; the independently reviewed retest packet awaits
+  new runtime and exact-head DEV CI-exception approval. The runtime stays stopped.
 - Current continuation, 2026-10-30: the existing goal targets
   ordinary preserving startup plus owner-verified consumer acceptance. The
   source correction in PR169 is released from reviewed candidate 094d7d8d.
@@ -399,3 +408,196 @@ provider preparation contract, without changing shared setup in this batch.
   retained. No deletion, shared provider configuration, global installation or
   consumer operation occurred. Published0.6.2 remains the available release;
   fresh initialization on1.24.0 remains unreleased and consumer recovery unknown.
+
+## Proposed public managed application replacement — 2026-10-30
+
+### Approval summary
+
+Status: proposed, not approved for implementation or live qualification.
+
+The receiving consumer requires a supported application-container replacement
+before beginning its finite acceptance run. Released 0.6.3 can initialize and
+resume its qualified provider combination, but cannot request that replacement
+through its public managed CLI. The successful producer used internal locked
+APIs. It does not supply the missing public operation contract.
+
+Recommend an explicit `ensure --replace-app` intent, reusing the existing ensure
+worker, ownership proofs and provider mutation lock. This is proposed syntax,
+not a command in 0.6.3. First support only a positively stopped, manual Devsy
+1.24.0 managed Compose checkout with unchanged configuration and declared named
+volumes. Replace its primary application container and writable layer; preserve
+named storage, bind mounts and dependency containers. Refuse anonymous or
+unattributed volumes before effects because the provider removes the primary
+with `rm -v`. Application hooks must have a qualified preserving contract.
+
+New approval would cover implementation, native regression checks, independent
+review, normal task-branch/draft delivery and one conditional synthetic provider
+qualification described below. Publishing, global installation and real consumer
+startup remain separate. Declining preserves current behavior and the receiving
+consumer's preflight block. No runtime, tool installation, provider change or
+data operation is authorized by this proposal or its critique.
+
+### Verified contract and scope
+
+Evidence baseline: released Devrouter
+`525b4e23f2e4cb0ac3319a1abedde59020680d28`; its executable tree equals the
+current documentation branch. Devsy source is
+`1f47cd185bd134b45cdce12b947f6c601d76d329`.
+
+- Public ensure registers no replacement option. Managed start, preflight and
+  readiness failures throw before the legacy recreation fallback. See
+  [CLI](https://github.com/rschlaefli/devrouter/blob/525b4e23f2e4cb0ac3319a1abedde59020680d28/src/cli.ts#L188)
+  and [managed startup](https://github.com/rschlaefli/devrouter/blob/525b4e23f2e4cb0ac3319a1abedde59020680d28/src/core/workspace-ensure.ts#L1359).
+- Internal `startDevsyWorkspace({recreate:true})` revalidates exact ownership
+  under the existing provider lock. The producer additionally used the checkout
+  lifecycle lock, but bypassed the public worker request/admission transport and
+  explicitly excluded allocated-network claims. Its named-volume and actual
+  synthetic-data evidence remains valid for that selected test.
+- Devsy's Docker driver removes the exact primary ID through
+  [its helper](https://github.com/devsy-org/devsy/blob/1f47cd185bd134b45cdce12b947f6c601d76d329/pkg/docker/helper.go#L434).
+  Docker documents that `rm -v` removes anonymous volumes and retains explicitly
+  named volumes. [Docker CLI](https://docs.docker.com/reference/cli/docker/container/rm/)
+  The primary writable layer is replaced; this is not arbitrary-state retention.
+- The intended receiving lane has no allocated-network claim or capacity
+  enrollment. Ordinary Compose networks and external devnet are distinct from a
+  Devrouter network allocation. Invalid history or other admission evidence still
+  refuses; absence of enrollment never authorizes discarding evidence.
+- Retained Compose overlay apply/restore remains a separate, unsupported
+  transition. Descriptor hashes do not establish that contract; exact service
+  startup uses `--no-recreate`, and retained checks compare actual service hashes.
+  Variants retain ADR 0013's process-input meaning. A same-path overlay edit,
+  raw provider command, private API import or intentional failure is no public
+  replacement/reconfiguration procedure.
+
+### Primitive impact and behavior
+
+| Primitive | Disposition | Required contract |
+| --- | --- | --- |
+| Exact managed environment | Extend | One explicit primary-container replacement, retaining the same checkout/provider/project and declared persistent resources. |
+| Lifecycle operation | Reuse and extend intent | Carry replacement through the existing fenced ensure request and worker. Admission, cancellation, drainage and unknown completion retain their meaning. |
+| Repository application data | Reuse ownership | The repository owns preserving hooks and semantic data checks; Devrouter never infers a reset or replay permission. |
+
+The public ordering is a proven canonical stop, the proposed explicit replacement
+ensure, ordinary canonical exec acceptance and final canonical stop. The option
+is never inferred by ordinary ensure or background recovery. It rejects repair
+or fresh initialization in the same request, running/busy/unknown populations,
+changed profiles/variants/configuration, incomplete ownership, anonymous mounts,
+dependencies sharing the primary's network/PID/IPC namespace, allocated-network
+claims and capacity-targeted/enrolled/retained-managed state
+before preparation, journal dispatch or resource mutation. Invalid global
+admission/history remains fail-closed.
+
+Preflight binds the exact stopped generation, descriptor and ordered Compose
+inputs, rendered service identities, provider/daemon endpoint, primary ID, named
+mounts, dependency population and source/hook bytes. Revalidate at dispatch and
+after provider return. Namespace absence must cover all containers on the selected
+daemon, including stopped or foreign containers outside this project. Resolve
+network/PID/IPC reverse references by full ID, accepted ID prefixes and names.
+Incomplete or unstable inventory refuses. Repeat this proof while holding the
+existing provider lock immediately before dispatch.
+
+Persist replacement authority before destructive dispatch, not only in worker
+options. Bind the durable attempt to the stopped generation, old primary ID,
+preflight digest, operation and worker. Keep it through cancellation, canonical
+stop, settlement, history rollover and new request IDs. An unknown attempt cannot
+rearm. Observation may settle a proven completed or never-dispatched attempt;
+it cannot replay the destructive action. A missing old primary after interruption
+is not a fresh-create permission.
+
+The existing operation store owns this receipt and its strict schema, private
+file guards and fenced updates. Store it by exact identity under
+`~/.config/devrouter/replacement-attempts/`, outside the strictly enumerated
+reliability-journal directory. This is direct operation-authority lookup, not a
+repository discovery registry or another lifecycle engine. Use existing journal,
+workspace and provider locks; do not add a separate lock system. A receipt write
+or journal acknowledgment failure grants no dispatch authority.
+
+Keep existing journal shapes readable by released 0.6.3. A new unknown journal
+field or entry would make its global enumeration fail. Prove compatibility with
+that released reader and show that its guarded ordinary recovery cannot replay
+the replacement or erase its receipt. Reconciliation of an unknown replacement
+uses the matching implementation; no caller strips an authority record. If this
+compatibility cannot be proved, stop before live qualification and return the
+exact protocol limitation rather than broadening rollout or changing readers.
+
+Success requires a changed primary ID, unchanged dependency IDs and persistent
+mount identities, current helper/session/process ownership, preserving hook
+execution and no initializer replay. Prove infrastructure before normal route
+publication, then verify application readiness through the published routes.
+Capture
+the new stop baseline before application checks can fail. A failure retains
+evidence and data, withdraws unproved routes, and exposes a bounded canonical
+stop/repair path only when its existing proof requirements hold. No unknown
+worker kill, automatic second replacement, volume deletion or fence clearing.
+
+### Proposed finite execution batch
+
+Boundary owner: this Devrouter task. Consumer source, runtime and reset planning
+remain with their existing owners. On approval, use a separate repository-local
+`rs/managed-app-replacement` worktree/branch from the freshly resolved main target;
+preserve the existing documentation draft. Continue this multi-phase plan there.
+
+1. Extend existing CLI/ensure, reliability request/worker/operation-store,
+   managed stop/population and Devsy mutation seams and their existing tests.
+   Include durable receipt schema, atomic persistence and compatibility checks.
+   No Devsy provider source/API change,
+   lifecycle state machine, global lock, dependency or repository registry.
+   Add the explicit-intent decision as ADR 0015 (next free number at execution),
+   and update the owning lifecycle manual/knowledge, bundled skill and AI prompt.
+2. Run repository-native static/type/test/build/package checks. Review the whole
+   committed source delta for correctness, preservation, integration and security
+   before effects; handle one focused correction through the same reviewer.
+   Ordinary task-branch pushes and a draft PR are part of the requested delivery.
+3. Only after held-source review, required CI and exact packed-byte proof pass,
+   qualify the public packed CLI on ONE new synthetic linked checkout at
+   `/private/tmp/devrouter-managed-replacement-20261030/managed-replacement-q30`.
+   Reuse the prior Node 24/Postgres 16 fixture's existing immutable images and
+   verified Devsy 1.24 agent; use unique new named volumes and no existing
+   consumer data. Missing images or agent prerequisites block this branch;
+   no new image build/pull or provider installation is requested. Cap running
+   fixture containers at an aggregate 2 CPU/2 GiB and the qualification at
+   45 minutes, plus up to five minutes for terminal canonical stop. No paid
+   inference or global installation.
+
+The one fixture sequence initializes synthetic main/shadow parent-child data,
+stops, resumes ordinarily once, stops, performs one explicit app replacement,
+proves actual retained values/relationships and readiness, then stops and proves
+zero exact routes. Record immutable image, CLI, source, provider and resource
+identities. Canonical commands run once per declared step; this is not authority
+for repeated fresh fixtures or replacement retries. Native negatives cover
+faults without introducing live fault injection.
+
+On the first material qualification failure, capture bounded evidence, cancel
+only the recorded owned caller through supported drainage, and attempt one exact
+canonical stop/repair within its existing proof contract. Refusal or uncertain
+cessation remains unknown. Keep data and artifacts; no cleanup, reset or broad
+prune. The terminal is a reviewed source/CI/draft package plus truthful public-CLI
+qualification, or the exact blocked dependency. It does not itself publish a
+release or unblock real consumer adoption.
+
+### Test portfolio and evidence limits
+
+| Consequential behavior | Existing evidence | Required added proof |
+| --- | --- | --- |
+| Public intent and compatibility | Ordinary managed ensure refuses legacy recreation; command tests cover current flags. | Extend parser/worker tests for explicit intent, incompatible options, alias parity and unchanged ordinary behavior. |
+| Ownership and persistent resources | Existing stop/population/provider tests and selected internal replacement receipt. | Refuse unknown/running/stale/config/mount/anonymous-volume cases; include daemon-wide foreign/stopped namespace references by ID/name and under-lock races. Prove primary-only replacement and unchanged dependency/volume identities. |
+| No replay or duplicated mutation | Existing durable initialization and worker/fence tests. | A stopped-generation/old-primary-bound durable attempt survives cancellation, stop, rollover and a new CLI request ID without replay. Existing 0.6.3 journal enumeration remains valid and older recovery cannot erase or replay replacement authority. |
+| Post-mutation recovery | Existing managed stop and external-population repair tests. | A newly proved replacement publishes its own stop baseline; partial failures preserve evidence and valid stopping without unknown adoption. |
+| Useful consumer work | Internal Devsy 1.24 synthetic replacement preserved actual data. | Exact packaged public command preserves main/shadow relationships through stop/resume/replacement and ends stopped. Actual consumer acceptance still belongs to its owner. |
+
+Arbitrary overlay/network/port changes, data-service replacement, allocated
+networks, controller enrollment and reset recipes are not qualified by this
+batch. They require a separate transition design and explicit approval; the
+populated-reset planning owner should keep that exact gap visible.
+
+### Proposal progress
+
+Source/contract investigation is complete; implementation and live qualification
+are unapproved. The first useful result is a truthful public-command capability
+boundary before the receiving owner creates its finite consumer runtime. The
+independent plan critique approved the corrected scope after two verified
+findings: durable authority must survive new request IDs, and namespace proof
+must include foreign and stopped containers outside the managed project.
+The existing operation store owns the receipt; released-reader compatibility
+must pass before live effects. The next step is a concrete human ruling.
+Provider-level preservation remains evidence, not public support.

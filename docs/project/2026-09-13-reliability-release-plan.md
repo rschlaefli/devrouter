@@ -30,6 +30,13 @@ blocked. The
 [fresh-bootstrap plan](./2026-10-29-managed-fresh-bootstrap-plan.md#progress)
 owns the producing evidence and historical failed qualification.
 
+A second receiving owner has verified 0.6.3 adoption but holds consumer startup:
+its required managed app-container replacement has no public command in 0.6.3.
+The producer used internal locked APIs, which do not establish that contract.
+The [proposed explicit replacement batch](./2026-10-29-managed-fresh-bootstrap-plan.md#proposed-public-managed-application-replacement--2026-10-30)
+records the smallest extension and new approval boundary. Retained Compose
+overlay apply/restore remains a distinct unqualified transition.
+
 This front section replaces the older current-status table and priority order.
 Historical execution records below remain evidence, not current completion
 claims. Existing W0–W9, S1–S8, M0–M3 and Q01–Q36 obligations remain open wherever
