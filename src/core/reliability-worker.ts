@@ -35,6 +35,7 @@ export type LifecycleWorkerRequest = {
   fence: ReliabilityFence;
   command?: string[];
   retainedExecProof?: DevsyExecProof;
+  replacement?: { stoppedFence: ReliabilityFence; preflightSha256: string };
   admission?: {
     expectedRevision: number;
     profile: string;
@@ -47,6 +48,7 @@ export type LifecycleWorkerRequest = {
     variant?: string;
     repair?: boolean;
     initializeNew?: boolean;
+    replaceApp?: boolean;
     open?: boolean;
     quiet?: boolean;
     delete?: boolean;

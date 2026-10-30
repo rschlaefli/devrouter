@@ -2,10 +2,12 @@
 
 ## Approval summary
 
-Status: planning only. Approval mode: direction-only until the provider and
-legacy-client feasibility checks below pass. The human-approved follow-up from
-the existing disposable-restart owner requested this separate proposal. That
-approval covers preparation and return of the proposal, not execution.
+Status: finite source-only feasibility complete with explicit compatibility and
+consumer-protocol blockers. The focused independent review found the proposed
+contract not implementation-ready. Main verified the load-bearing findings with
+additional zero-provider-effect hook and released-CLI probes. The original
+source-only authority covers this result and ordinary task-branch delivery;
+public maintenance implementation and runtime/data effects remain unapproved.
 
 A retained environment needs a temporary isolated Compose population, a single
 repository-owned maintenance command, and restoration of its original preserving
@@ -20,25 +22,27 @@ application data semantics, writer checks and the read-only data-ready verdict.
 No reset, seed, migration, credential rotation or data repair is inferred. An
 unknown command outcome never authorizes replay or ordinary restoration.
 
-First approval to consider after critique: a source-only feasibility batch,
-ending with executable native evidence and a reviewed implementation-ready
-contract, or an exact provider/compatibility blocker. Implementation, live
-qualification, ready/merge/release, installation and consumer adoption/data
-operations each remain unapproved. The proposed later qualification uses one
-new synthetic fixture, cached immutable images, at most 2 CPU/2 GiB and 60
-minutes including terminal stop. It runs benign preservation checks only.
+The approved batch ends with executable native evidence and a reviewed
+implementation-ready contract, or an exact provider/API/compatibility blocker.
+Implementation, live qualification, ready/merge/release, installation and consumer
+adoption/data operations remain separate. The proposed later qualification uses
+one new synthetic fixture, cached immutable images, at most 2 CPU/2 GiB and
+60 minutes including terminal stop. It runs benign preservation checks only.
 
 ## Execution details
 
 ### Evidence and current capability boundary
 
 Baseline: released Devrouter `525b4e23f2e4cb0ac3319a1abedde59020680d28` (0.6.3).
-The separate [app-replacement draft](https://github.com/rschlaefli/devrouter/pull/171)
-at `f84a174f9f5bc875de0c63c2196713e10072ecd1` is unchanged-configuration,
-primary-only replacement. Its source review passes; release and live acceptance
-are separate. It does not establish retained overlay apply/restore support.
+The separate [app replacement](https://github.com/rschlaefli/devrouter/pull/171)
+is merged at `d2fba69eaad9bc6464d412776e9241b66ea33f32`, with a complete tree
+equal to reviewed `f84a174f9f5bc875de0c63c2196713e10072ecd1` and passing
+[merged-main CI](https://github.com/rschlaefli/devrouter/actions/runs/41121149134).
+Its review, package-byte proof and one bounded synthetic qualification passed.
+It is unchanged-configuration, primary-only replacement and remains unreleased.
+It does not establish retained overlay apply/restore support.
 
-- `src/core/devcontainer-profile.ts:616` starts exact services with
+- `src/core/devcontainer-profile.ts:634` starts exact services with
   `--no-recreate --no-deps`; retained checks compare their rendered configuration.
   Editing an overlay in place is not an apply contract.
 - Official Devsy 1.24.0 source
@@ -64,6 +68,218 @@ variants cannot select it. A separate fresh disposable environment changes the
 retained-data target and requires its own authority. Raw Compose/provider
 commands, private imports and intentional failures are not supported substitutes.
 
+### Source-feasibility evidence — 2026-10-30
+
+The provider's structural-overlay recreation route is unsuitable: exact official
+Devsy 1.24.0 code dispatches whole-project `compose down`, without `--volumes`.
+A native source-derived Go probe captures that argv with no provider effects.
+This rejects one route; it does not establish that an upstream change or new
+lifecycle engine is necessary.
+
+A second Go probe extracts 20 original provider functions and verifies a new
+synthetic primary with unchanged source signature, image, lifecycle contract,
+metadata, runner/service labels and persisted Compose invocation. Structural
+recreation remains unrequested and label lookup returns the new primary ID.
+Changed structure, image, metadata, runner, service and feature inputs refuse;
+malformed persisted invocation also refuses. Frozen valid empty image metadata
+and the in-memory inventory are fixture adapters. General image-metadata parsing,
+actual Compose execution and provider hook behavior are not qualified by it.
+
+Six mocked TypeScript cases compose the existing pinned stop/absence and
+namespace guards with a temporary exact-ID removal and a minimally pinned
+selective-start variant. They verify the full provider-generated file chain,
+explicit service subset, endpoint pinning despite conflicting host environment,
+no project down/volume deletion/broad recreation, and refusal before mutation
+for host PID mode, namespace consumers, anonymous storage or changed inventory.
+Missing fresh stopped proof refuses removal/startup at a synthetic callback.
+That fixture does not establish actual stop-inspect-remove ordering; stateful
+running/stopped/absent observations remain a required implementation check. Every
+child launch is mocked.
+
+The existing native portfolio adds 31 exec, 103 pinned-container/exec-proof and
+20 selected persistence/model checks, all passing on Node 24.16.0/pnpm 11.6.0.
+The last command selects 20 tests and deselects 166; these are not platform skips.
+Go 1.27.3 runs the two standard-library-only source probes. No CLI/provider was
+installed, and no Docker, application, database or container runtime was started.
+The source-only proof artifacts and exact hashes are retained in the task's
+existing private review area; they are not shipped product implementation.
+
+A bounded Opus 5.5 feasibility consultation found no need for a new supervisor
+or upstream change from the evidence so far. Its requested identity-replay and
+pinned-sequence experiments pass as scoped above. Focused review and follow-up probes expose the unresolved compatibility and
+consumer-protocol limits below. The candidate contract is not implementation-ready.
+
+### Candidate existing-seam contract (not implementation-ready)
+
+- Freeze both complete rendered models and the provider's actual recorded
+  Compose invocation and generated override bytes, not only repository
+  `composeFiles`. Keep the logical provider descriptor/signature unchanged.
+  Maintenance profile selection is an internal service/process subset, not a
+  Devsy structural-overlay request. Preserve provider labels from verified
+  original artifacts; do not forge Docker's actual ConfigFiles label. Verify
+  the expected original or maintenance file chain for each phase.
+- Under the existing root worker/fence and provider serialization, stop each
+  exact selected full ID and re-inspect its stopped state before a bounded
+  exact-ID removal. The new removal verb uses no force or volume flag and must
+  prove absence. Start only the missing selected services through the existing
+  Compose seam, extended with explicit endpoint arguments/environment and
+  `--no-recreate --no-deps --no-build --pull never`. Recheck image and existing
+  named/bind storage identities before creation and actual mounts afterwards;
+  missing retained storage refuses rather than permitting Compose to create it.
+  Retain original networks, create only the declared private network, and never
+  change an external/shared network's configuration or perform project down.
+- Keep the root exec active across entry, command, cessation, semantic probes
+  and restoration. Inner command completion never settles the root worker.
+  Before the body, prove its exact primary target, private PID namespace and
+  no daemon-wide namespace consumers. After body completion, or a restoration
+  request following unknown completion, stop and re-inspect that exact primary.
+  This proves cessation of its namespace's command processes and descendants
+  under the supported isolation assumptions; host-worker drainage alone does not.
+  The [Linux PID-namespace contract](https://man7.org/linux/man-pages/man7/pid_namespaces.7.html)
+  and [Docker stop contract](https://docs.docker.com/reference/cli/docker/container/stop/)
+  support this composition. Its actual runtime behavior is still unqualified.
+- Require one declared `probeService` in the already-running, exactly proved
+  stateful population. Run the literal repository-owned read-only cessation
+  command, then its fresh data-ready command, through a pinned exact-ID exec
+  seam. Preflight the required executable/context and restricted paired
+  destinations before entry. A stopped/missing probe context blocks; no implicit
+  application restart, new mount/toolchain, administrator/default connection or
+  bootstrap wrapper supplies it. A completed guard exit is a verdict only after
+  the qualified guard actually runs in the current attempt, target and fence.
+  Unknown probe completion supplies no verdict. Preserve unknown body completion
+  and never replay it; restoration-only resume reports that distinction.
+- Restore the frozen original model by the same selective sequence, reprove
+  population, provider identity, mount/image equality and semantic readiness,
+  then run only qualified preserving hooks/processes and publish routes last.
+  Provider exec re-resolves a running primary by labels; no new session engine
+  is introduced. The source probe below proves that fresh layers can replay provider hooks;
+  direct Compose avoids that dispatcher. Pre-data-ready source/image entrypoint
+  behavior and later preserving hooks require explicit qualification. No provider
+  startup/recreate is an isolation or probe shortcut.
+
+The permanent implementation belongs in the existing config, CLI, worker,
+exec, operation-store, profile/population and stop modules. The temporary removal
+and endpoint-pinned startup are bounded extensions of those seams, not authority
+to issue operator-side raw commands. The commands' proposed purposes remain:
+`plan` reports frozen models/effects, `status` reads the exact attempt without
+startup, `run` owns one transition/body/restore, and `resume` restores only.
+
+### Focused review outcome and blocking constraints
+
+The focused Opus 5.5 review completed with findings. The core selective
+composition is plausible and requires no demonstrated upstream change, but three
+requirements prevent an implementation-ready result:
+
+1. **Older-client availability.** A closed probe uses checksum-matched released
+   0.6.3 CLI bytes and isolated synthetic records. With a hypothetical 0.6.4
+   `writtenByVersion`, actual released ensure, exec, stop and controller-recovery
+   admission functions refuse before any provider effect, even with complete stop proof
+   and the config guard removed/ignored. Its global journal enumeration also
+   refuses with `Reliability journal entry is invalid.` A private maintenance
+   receipt remains untouched and is not enumerated before the version change.
+   This is the existing writer-version guard, not a maintenance schema change.
+   It prevents claiming mixed-version availability or older-client canonical
+   stop. More seriously, one newer record can stop an older global enumeration,
+   so the current promise of unaffected unrelated-workspace enumeration is not
+   proved for mixed versions. A blanket upgrade precondition changes operational
+   compatibility and needs an explicit ruling, or a separately reviewed staged
+   guard/delivery protocol. The probe's 0.6.4 stamp is hypothetical, not an actual
+   release artifact; the chosen future version still needs its exact-package test.
+   Identity/variant selection is a closed fixture; full worker IPC is excluded.
+2. **Post-stop probe recovery.** The currently specified safe probe must already
+   run in a proved stateful dependency. Canonical stop can stop that dependency,
+   making fresh data-ready unavailable while ordinary ensure remains fenced.
+   Initial status must report this precise terminal block and retain isolation,
+   data, unknown outcome and receipts. It must not imply automatic restoration.
+   A later restoration-only start of just the frozen probe service, followed by
+   fresh ownership/network/storage proof, is a recommended design extension.
+   It needs an explicit contract and bounded review before implementation; no
+   general application restart or implicit service start follows from this plan.
+3. **Consumer-owned semantic probe.** The receiving source has no complete safe
+   paired-target, writer, background-cessation and full-data-ready entrypoint in
+   its dependency. Its owner must implement/review that API under separate
+   consumer authority. Neither a schema/marker snapshot nor a bootstrap wrapper
+   substitutes for it. Source references and context limits are recorded below.
+
+Two further source-derived Go cases resolve the hook question. The exact pinned
+provider marker/eligibility functions show that a fresh writable layer makes
+onCreate, updateContent, postCreate and postStart eligible again. The supported
+skip flags suppress only postCreate/postStart/postAttach; onCreate/updateContent
+remain. The probe records hook names instead of executing bodies. Therefore a
+pre-data-ready `workspace up` is not a suppression mechanism. Direct frozen
+Compose creation never invokes Devsy's setup dispatcher; its image entrypoint,
+feature entrypoint chain and service command still need semantic validation for
+writes/host control. Later ordinary startup requires every configured hook and
+entrypoint to preserve data. The prior primary-only replacement contract
+[ADR 0015](../adr/0015-explicit-stopped-app-replacement.md) explicitly requires
+qualified preserving hooks; its successful fixture is no general hook-suppression
+proof. In the receiving wrapper, seed/push requires the explicit
+`--initialize-new-disposable` argument; preserving startup does not select it.
+
+Other accepted review corrections are contract requirements for a future batch:
+refuse missing/changed provider-generated paths instead of rewriting them; bind
+all commands/probes to the same attempt/fence through an explicit protocol; keep
+outcome-specific restoration rules consistent; reject host-control endpoints or
+unknown escaped work; use stateful stopped/absent inspection fixtures; and name
+only non-starting `stop --repair` for incomplete-attempt recovery.
+
+### Proposed probe binding and restoration table
+
+This is a proposed consumer API for the next contract review, not a shipped
+interface. Deliver fixed `DEVROUTER_MAINTENANCE_ATTEMPT_ID` (UUID),
+`DEVROUTER_MAINTENANCE_ENVIRONMENT_ID` and
+`DEVROUTER_MAINTENANCE_RUNTIME_GENERATION` through the pinned exec environment.
+The environment ID is the existing reliability identity hash; generation is its
+canonical bounded nonnegative decimal counter.
+No shell/template expansion is performed. A bounded single JSON verdict contains
+`version: 1`, matching `attemptId`, `environmentId`, `runtimeGeneration`,
+`probe: cessation|data-ready`, a fresh per-invocation `probeId` delivered as
+`DEVROUTER_MAINTENANCE_PROBE_ID` (UUID), and `verdict: pass|refuse`. The wrapper's qualified
+exit and complete matching verdict are both required; absent, malformed, stale
+or unknown-completion output is unknown, never success. The repository owns the
+semantic predicate; Devrouter owns actual dispatch, target/fence and receipt
+validation. A future field name change is an API decision, not a routine guess.
+
+| Body outcome | Fresh cessation and data-ready | Allowed action |
+| --- | --- | --- |
+| Success | Both positive, probe context proved | Restore frozen original population; report success only after restored readiness. |
+| Known failure | Both positive, probe context proved | Explicit restoration-only resume may restore; retain/report original nonzero body result. No automatic body replay. |
+| Unknown | Both positive, probe context proved | Explicit restoration-only resume may restore; retain/report original unknown outcome. Never infer body success. |
+| Any dispatched outcome | Any proof missing, failed, stale or unavailable | Retain fence/isolation; report exact block. A stopped probe service is a named terminal block under the current contract. |
+| Never dispatched | Original population freshly proved unchanged | May release ordinary preserving recovery only after proving no infrastructure effect; never rearm the original attempt. |
+
+The cessation boundary also requires a private primary PID namespace, no
+namespace consumers, no privileged/host-control execution path and no Docker
+socket/endpoint that could create sibling work. Revalidate daemon-wide population,
+private-network membership and shared-storage access after stopping. New or
+unattributed attempt-related resources refuse. Database/background work is still
+an independent consumer proof. Unknown host-control capability must refuse,
+not be assumed absent from feature names or a missing explicit mount.
+
+### Consumer protocol prerequisite
+
+The existing consumer owner confirms that stopping the exact primary is
+compatible with its contract. It also confirms that a complete dependency-native
+read-only probe does not currently exist. Source inspection at public revision
+`8d56d46fe389f6c0a2b2cce7476a3cf55293a23c` verifies:
+
+- The [identity predicates](https://github.com/uzh-bf/klicker-uzh/blob/8d56d46fe389f6c0a2b2cce7476a3cf55293a23c/packages/prisma/src/disposableDatabase.ts#L56)
+  use repository TypeScript/pg. Both restricted destinations and their common
+  population/provider/storage binding remain required.
+- The [bootstrap wrapper](https://github.com/uzh-bf/klicker-uzh/blob/8d56d46fe389f6c0a2b2cce7476a3cf55293a23c/.devcontainer/recover-bootstrap.sh#L54)
+  installs/builds and changes configuration/markers; its preserving checks are
+  not a complete attempt-bound cessation or semantic data-ready predicate.
+- The [dependency mounts](https://github.com/uzh-bf/klicker-uzh/blob/8d56d46fe389f6c0a2b2cce7476a3cf55293a23c/.devcontainer/docker-compose.yml#L17)
+  do not declare the repository Node/toolchain context needed by that verifier.
+  Application HTTP readiness belongs after restoration, not before it.
+
+A dependency-native adaptation is a possible future consumer design, not an
+existing qualified capability. That owner must supply and review paired-target,
+writer, database/background-cessation and full data-ready semantics, including
+restricted credential/context delivery without implicit privilege. Devrouter
+cannot invent those predicates or install a different execution context here.
+This remains an explicit consumer API prerequisite; no current consumer is unblocked.
+
 ### Product primitives and ownership
 
 | Primitive | Disposition | Owner and boundary |
@@ -84,7 +300,8 @@ and restoration-only `resume`. Use one named literal declaration under the
 existing `.devrouter.yml` `managedRuntime.maintenance` stanza. It references
 repository-relative Compose overlays, an existing maintenance profile, literal
 command argv, a literal read-only data-ready probe and a read-only cessation
-probe for command-owned application/database work. Path validation remains
+probe for command-owned application/database work, with an explicit `probeService`
+in the already-running proved stateful population. Path validation remains
 repo-scoped. No new Devrouter config file or shell/template interpreter is added.
 [ADR 0007](../adr/0007-keep-ci-profile-planning-repository-owned.md) still prevents
 profile-plan bindings from becoming executable orchestration.
@@ -141,13 +358,19 @@ for separate authority; it is not silently included.
    proof; unknown writer access refuses. The checkout fence alone is insufficient.
    Qualification assumes cooperative managed actors, not hostile host/Docker
    administrators; it makes no universal writer-prevention claim.
-5. Restore only after known successful command completion and positive
-   repository-owned data-ready verification bound to this attempt/generation.
+5. Restore only under the body-outcome table above, after positive fresh
+   repository-owned cessation and data-ready verification bound to this attempt.
+   Automatic successful completion restores on body success; explicit resume
+   can restore a failed or unknown body without changing its recorded outcome.
    Restore the frozen original model, not edited current defaults. Re-prove
    provider, source, images, storage and actual old/new identities; changed
    ownership/configuration, port conflicts or incomplete evidence block return.
    Start preserving hooks/writers only after data-ready and restored-population
    proof. Publish routes last, then prove infrastructure and application health.
+
+Every recorded provider-generated file must remain at its original path with
+its frozen digest before restoration; missing, changed or regenerated files
+refuse. This batch grants no rewrite of provider-owned files.
 
 The original app, stateful-service, network and session container identities may
 change. All declared persistent mount identities and synthetic data must remain.
@@ -165,22 +388,26 @@ unchanged. Entry/restoration dispatch authority is single-use; acknowledgment
 failure, cancellation, stop or new request IDs never rearm a destructive step.
 Application/transport outcomes remain separate from infrastructure phases.
 
-The proposed opt-in config key rejects legacy startup only for an adopted
-checkout. Source feasibility must test every legacy effect path, particularly
-exec and controller recovery. A single root exec operation must remain active
+The proposed opt-in config key rejects the released parser for an adopted
+checkout, but config alone cannot fence legacy exec. The released-byte probe
+above tests ensure/exec/stop and controller recovery under a future writer stamp. A single root exec operation must remain active
 until restoration is proved; no inner command completion may prematurely settle
 it. After worker loss, legacy interrupted-exec admission and the config guard
 must prevent ordinary startup/exec from exposing an incomplete maintenance
 state. Canonical non-destructive stop remains available with exact ownership.
-This protection is a hypothesis requiring executable old-reader/entrypoint
-proof, not an established compatibility claim.
+Released older clients refuse under that stamp even after canonical stop;
+version-coordinated availability and global enumeration remain blocking
+compatibility decisions. The new CLI must guard on the durable attempt itself,
+not only on removable config or an active root operation.
 
 Do not add unknown top-level journal fields or a new global-format fence.
 Existing `writtenByVersion` guards may themselves reject an older CLI after a
 future release writes a newer record. Test the actual future package version,
 not merely an unchanged-version source build. Coordinate matching CLI adoption
 before activation; mixed-version availability is unqualified until demonstrated.
-No maintenance-specific record may newly block unrelated workspace enumeration.
+Private maintenance records must remain outside strict journal enumeration.
+The existing global version-stamp refusal discovered above still requires a
+compatibility ruling; no unrelated-workspace availability claim is made.
 
 On failed/unknown command completion, retain isolation and evidence; never
 replay the command or infer data-ready from a filename, missing process or exit
@@ -192,16 +419,18 @@ group is insufficient; a stale semantic receipt never substitutes for cessation.
 exact missing proof and remain isolated/stopped for the data owner's decision.
 
 On partial entry/restoration failure, preserve all observed identities and
-withdraw unproved routes. Permit at most one exact canonical stop/repair through
+withdraw unproved routes. Permit at most one exact non-starting `stop --repair` through
 proved known populations within the approved deadline. Mixed-generation stop
 support must be demonstrated; existing stop --repair is not assumed sufficient.
 If ownership or cessation is unknown, report unknown. Never clear fences, kill
 unknown workers, adopt foreign containers, delete volumes or retry the transition.
 A new private network left after restoration is reported; deletion is separate.
 
-### Proposed finite source-feasibility batch
+### Approved finite source-feasibility batch
 
-This batch needs new approval. It performs no runtime or data effects.
+This batch has human approval. It performs no runtime or data effects.
+Check command cessation first so an exact missing protocol can end the batch
+before broader transition prototypes.
 
 - Extend tests/prototypes only at existing config, worker/exec, operation-store,
   provider and managed-population seams. Establish literal contract validation,
@@ -229,6 +458,42 @@ provider and population/stop modules. Its exact files and ADR are settled by the
 feasibility result. It requires normal checks, integrated independent review,
 CI and draft delivery. Planning alone does not start that package.
 
+### Proposed next source implementation batch
+
+Recommendation, not approved: after the blocking compatibility/probe-recovery
+contract rulings and consumer protocol ownership are resolved, implement the
+candidate contract on one ordinary
+task branch, using the existing config/CLI/exec worker, operation store,
+`devcontainer-profile.ts`, `devpod-environment.ts`, `devsy-exec-proof.ts` and
+managed stop/recovery seams. Add the narrow private attempt schema and canonical
+ADR/manual/skill/AI-prompt updates required by this public capability. Preserve
+all existing non-maintenance behavior. No upstream/provider source change or new
+lifecycle engine is included; a newly necessary one returns a decision.
+
+The feature-wide native portfolio is: (1) both-model and literal declaration
+validation, (2) endpoint/exact population and dispatch guards, (3) real atomic
+attempt persistence and no replay across acknowledgment loss/cancellation/new
+requests, (4) root-worker/admission and legacy entry guards, (5) stopped-primary
+cessation plus fresh safe-context probe sequencing, and (6) canonical stop of
+each partial known population and restore-before-writer/route ordering.
+Reuse the current qualified seams and source probes. New tests protect those
+observable contracts, not prose, snapshots or the prototype's implementation.
+
+An incomplete attempt must block ordinary ensure/exec even after canonical stop.
+Restoration-only admission is a narrowly proved extension of the existing model;
+it retains the interrupted body's history and never reclassifies it as success.
+Keep private attempt records outside strict global journal enumeration. Unknown
+phase/proof, data-ready failure or drift retains the fence and returns a precise
+blocker. A never-dispatched claim may permit ordinary preserving recovery only
+after fresh proof of the unchanged original population; it never rearms maintenance.
+
+Run repository-native checks, meaningful focused/native regressions, package
+checks, integrated independent review, exact-head CI and ordinary draft delivery.
+Terminal: reviewed source and passing CI in a draft PR, with explicit consumer
+probe prerequisites and runtime limits. No live qualification, consumer change,
+ready/merge, release, install, deletion or data operation is included. Later
+qualification remains the separately bounded proposal below.
+
 ### Proposed later synthetic qualification
 
 Separate approval is required after reviewed source/CI/package proof. Use ONE
@@ -250,38 +515,54 @@ infrastructure contract only, not a real reset or arbitrary consumer topology.
 
 Native tests cover fault/unknown-completion/cancellation; live fault injection
 requires separate authority. First material failure ends the qualification
-branch, records bounded evidence and permits one proved stop/repair attempt
+branch, records bounded evidence and permits one proved non-starting `stop --repair` attempt
 within the reserved deadline. Retain data/artifacts. No second fixture,
 transition retry, reset/reseed, cleanup or prune.
 
 ### Remaining approvals and terminal condition
 
-1. Source-only feasibility batch above; its terminal is reviewed executable
-   contract evidence or an exact blocker, with no runtime effects.
-2. Implementation and native/review/CI/draft delivery once feasibility resolves
+The source-only feasibility batch above is already approved. Its terminal is
+reviewed executable contract evidence or an exact blocker, with no runtime effects.
+The later approvals remain:
+
+1. Implementation and native/review/CI/draft delivery once feasibility resolves
    the contract. Any provider-source/API change stays separately owned.
-3. One exact bounded synthetic qualification, including disclosed writable-layer
+2. One exact bounded synthetic qualification, including disclosed writable-layer
    loss for every selected replaced container, after source/package gates.
-4. Ready/merge, release and receiving/global installation as a named conditional
-   delivery sequence with actual version compatibility and adoption evidence.
-5. Consumer declaration/guard adoption and any real maintenance/reset/data
+3. Ready/merge, release and receiving/global installation as a named conditional
+   sequence with actual-version compatibility and adoption evidence.
+4. Consumer declaration/guard adoption and any real maintenance/reset/data
    operation in that owner's separately reviewed and approved batch.
 
-This planning task ends with one critiqued proposal returned to the requesting
-owner and explicit unqualified seams. No current consumer is declared unblocked.
+This source-only batch ends with its reviewed contract or exact blocker returned
+to the requesting owner. No current consumer is declared unblocked.
 
 ## Progress
 
-Root outcome: a supported retained maintenance/restore contract that protects
-storage and lets the existing consumer owner execute useful work under its own
-authority. Current authorized terminal is this planning proposal only. First
-useful acceptance is the public capability boundary and provider/legacy-path
-feasibility specification. Released 0.6.3 and primary-only replacement do not
-close that boundary. Main owns this separate planning worktree; critique is complete and portable return is being prepared. The first critique found two real gaps: host
-worker drainage does not prove container/database command cessation, and the
-writer/destination predicate lacked an executable stage. Both are corrected by
-an attempt-bound cessation gate and a guarded literal wrapper whose exclusion
-persists through data-ready. Focused independent critique approved both corrections. The reviewed contract
-is frozen; feasibility and all later effects still require their named approvals.
-No implementation, runtime, release, install,
-reset or deletion occurred in this planning batch.
+Root outcome: supported retained maintenance/restore that preserves storage and
+enables the consumer owner's useful work under its authority. The approved
+source-only feasibility batch has reached its terminal with reviewed evidence
+and exact compatibility/probe blockers. It has not produced an implementation-ready
+contract. Main owns this branch and result; consumer authority remains separate.
+
+First useful acceptance is complete: the structural-overlay route uses disallowed
+project down, while frozen-identity replay and a pinned selective composition pass
+source-only probes. Additional exact hook code proves fresh-layer replay, and the
+checksum-matched released 0.6.3 CLI proves future-writer refusal in ensure, exec,
+stop, controller admission and global journal enumeration even after stop proof.
+The private receipt remains intact. The reviewed findings and limits above are
+binding; no upstream impossibility or need for a new engine is inferred.
+
+Current dependent blockers are the operational mixed-version/global-enumeration
+contract, safe restoration after a stopped probe service, and the absent
+consumer-owned read-only semantic probe. The next source implementation package
+is concrete but unapproved and remains gated on those decisions. The next action is to return these blockers; no further prototype expands the
+approved terminal or supplies public implementation authority.
+Return the source-only result to the requesting owner and reconcile the existing
+roadmap; any later implementation/runtime/data/release step needs its named scope.
+
+Native goal remains blocked on the broader consumer outcome. No replacement goal,
+public maintenance implementation, runtime, release, installation, reset or
+deletion occurred. Native task binding still rejects the contained worktree plan;
+actual human authority remains independently verified in the existing private
+record without hook/client reconfiguration.

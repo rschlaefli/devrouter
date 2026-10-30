@@ -43,6 +43,17 @@ beforeEach(() => {
 });
 
 describe("runEnsureCommand host-port refusal output", () => {
+  it("forwards replacement only as an explicit worker intent", async () => {
+    vi.mocked(superviseLifecycle).mockResolvedValue(refusalResult());
+    await runEnsureCommand({ replaceApp: true, json: true });
+    expect(superviseLifecycle).toHaveBeenLastCalledWith(
+      "ensure",
+      "/repo",
+      expect.objectContaining({ replaceApp: true }),
+    );
+    await runEnsureCommand({ json: true });
+    expect(vi.mocked(superviseLifecycle).mock.calls.at(-1)?.[2]).not.toHaveProperty("replaceApp");
+  });
   it("carries explicit fresh intent into supervised startup", async () => {
     vi.mocked(superviseLifecycle).mockResolvedValue(refusalResult());
     await runEnsureCommand({ json: true, profile: "web", initializeNew: true });

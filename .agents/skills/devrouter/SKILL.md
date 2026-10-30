@@ -544,3 +544,14 @@ Devsy 1.16.2 for warm managed-profile changes: 1.23.2 rejects changed runService
 as structural. Do not recreate a retained environment to bypass that refusal.
 Exact generated feature overlays under DEVPOD_HOME and DEVSY_HOME are accepted;
 other paths remain subject to the normal Compose identity checks.
+
+### Explicit retained app replacement
+
+Use `ensure <checkout> --replace-app` only after canonical stop, with unchanged
+committed managed configuration and verified preserving hooks. Manual Devsy
+1.24.0 requires a retained dependency, named storage and no allocated-network or
+capacity enrollment. The primary writable layer is discarded; dependency IDs
+and named/bind mounts must remain. One durable attempt cannot be retried after
+failure or uncertainty. Use canonical stop/stop --repair for proved recovery;
+never clear the receipt or substitute raw provider recreation. See
+`docs/DEVCONTAINER.md` for the full contract. This does not apply Compose changes.

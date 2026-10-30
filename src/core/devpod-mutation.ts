@@ -47,6 +47,7 @@ export type DevpodStartOptions = {
   quiet?: boolean;
   workspace?: { token: string; gitCommonDir: string };
   freshBootstrap?: DevsyStartOptions["freshBootstrap"];
+  appReplacement?: DevsyStartOptions["appReplacement"];
 };
 
 export class DevpodStartPostconditionError extends Error {}
@@ -183,6 +184,7 @@ export async function startDevpodWorkspace(options: DevpodStartOptions): Promise
         workspace: options.workspace,
         prepareNetwork: options.prepareNetwork,
         ...(options.freshBootstrap ? { freshBootstrap: options.freshBootstrap } : {}),
+        ...(options.appReplacement ? { appReplacement: options.appReplacement } : {}),
       });
       resetWorkspaceRuntimeCaches();
       return result;
@@ -196,6 +198,8 @@ export async function startDevpodWorkspace(options: DevpodStartOptions): Promise
   }
   if (options.freshBootstrap)
     throw new Error("Fresh bootstrap is qualified only for the Devsy Docker provider.");
+  if (options.appReplacement)
+    throw new Error("App replacement is qualified only for the Devsy Docker provider.");
   const activity = options.recreate ? "DevPod recreate" : "DevPod start";
   return withMutationLock(activity, options.repoPath, () => {
     const workspaces = listDevpodWorkspaces(options.repoPath);
