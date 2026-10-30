@@ -1040,6 +1040,7 @@ export async function workspaceEnsure(
     let repairMutationStarted = false;
     let retainedRepairContainers: WorkspaceContainerSnapshot[] = [];
     let environmentStarted = false;
+    let freshBootstrapPending = false;
     let managedPlan: ManagedDevcontainerPlan | undefined;
     let previousManagedState: ManagedRuntimeState | undefined;
     let managedComposeProject: string | undefined;
@@ -1307,6 +1308,7 @@ export async function workspaceEnsure(
             processes: desiredProcesses,
             ...(hostPortDeclarationsSha256 !== undefined ? { hostPortDeclarationsSha256 } : {}),
             onCaptured: (state, captured) => {
+              freshBootstrapPending = true;
               capturedStopState = state;
               managedContainer = captured;
               managedComposeProject = state.composeProject;
@@ -1338,6 +1340,7 @@ export async function workspaceEnsure(
               : {}),
           });
           environmentStarted = true;
+          freshBootstrapPending = false;
         } catch (error) {
           if (error instanceof DevpodStartPostconditionError) environmentStarted = true;
           throw error;
@@ -1863,6 +1866,9 @@ export async function workspaceEnsure(
           `${original} Reset candidate retained for recovery.${failures.length ? ` Recovery incomplete: ${failures.join("; ")}.` : " State is degraded."}`,
         );
       }
+      // Fresh bootstrap retained its proven degraded baseline before initialization;
+      // no managed process has been delivered for ordinary rollback to reconcile.
+      if (freshBootstrapPending) throw error;
       if (options.repair && !repairMutationStarted) throw error;
       if (options.repair && repairMutationStarted && previousManagedState && managedPlan) {
         const failures: string[] = [];

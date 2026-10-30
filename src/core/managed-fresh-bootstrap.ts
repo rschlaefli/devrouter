@@ -537,6 +537,17 @@ export function createFreshBootstrap(options: {
               inspectManagedStopDaemon(endpoint) !== binding.daemonId
             )
               throw new Error("Fresh-bootstrap source or daemon changed.");
+            assertNetworkProviderBinding(
+              binding,
+              inspectNetworkProviderBinding({
+                provider: "devsy",
+                providerId,
+                repoPath,
+                endpoint,
+                providerContext: binding.providerContext,
+              }),
+              false,
+            );
             revalidateDevsyExecProof(repoPath, proof);
             proveRetainedManagedStop(state);
             if (

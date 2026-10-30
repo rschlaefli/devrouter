@@ -27,6 +27,7 @@ import { type DevpodWorkspace, selectDevpodWorkspace } from "../devpod-workspace
 import { detectHostPortClaimConflicts } from "../host-port-claims";
 import { listHostRouteState, replaceHostRoutesForRepo } from "../host-routes";
 import { reportLifecycleProgress } from "../lifecycle-progress";
+import { createFreshBootstrap } from "../managed-fresh-bootstrap";
 import {
   managedHostPortDeclarationsIdentity,
   resolveManagedHostPorts,
@@ -60,6 +61,10 @@ import { writeWorkspaceOwnership } from "../workspace-ownership";
 import { resetWorkspaceRuntimeCaches } from "../workspace-runtime";
 
 vi.mock("../network-diagnostics", () => ({ inspectLegacyNetworkCapacity: vi.fn() }));
+vi.mock("../managed-fresh-bootstrap", () => ({
+  assertFreshBootstrapRequest: vi.fn(),
+  createFreshBootstrap: vi.fn(),
+}));
 vi.mock("../capacity-policy", async (original) => ({
   ...(await original<typeof import("../capacity-policy")>()),
   readCapacityPolicy: vi.fn(() => undefined),
@@ -953,7 +958,7 @@ describe("workspaceEnsure", () => {
     return { runningServices, runningProcesses, snapshots };
   }
 
-  function mockColdManagedDevsyFailure(attachAfterFailure: boolean): void {
+  function mockColdManagedDevsyFailure(attachAfterFailure: boolean, startStatus = 1): void {
     vi.stubEnv("DEVROUTER_WORKSPACE_RUNTIME", "devsy");
     resetWorkspaceRuntimeCaches();
     fs.writeFileSync(path.join(gitDir, "devrouter-workspace"), "feature\n", "utf-8");
@@ -972,7 +977,7 @@ describe("workspaceEnsure", () => {
     const delegate = vi.mocked(spawnSync).getMockImplementation();
     let startAttempted = false;
     mockDevsyUp({
-      status: 1,
+      status: startStatus,
       stderr: "agent injection failed",
       onStart: () => {
         startAttempted = true;
@@ -994,6 +999,42 @@ describe("workspaceEnsure", () => {
       return delegate?.(command, args, options) as never;
     });
   }
+
+  it("retains failed fresh initialization before any managed-process rollback", async () => {
+    mockColdManagedDevsyFailure(true, 0);
+    const state: ManagedRuntimeState = {
+      ...managedPreviousState(),
+      status: "degraded",
+      transitionPhase: "fresh-bootstrap",
+    };
+    vi.mocked(createFreshBootstrap).mockImplementation((options) => ({
+      prepare: () => ({
+        binding: {
+          provider: "devsy",
+          providerId: "feature",
+          providerContext: "default",
+          endpoint: "unix:///tmp/synthetic.sock",
+          daemonId: "daemon",
+          definitionSha256: "a".repeat(64),
+        },
+        afterStart: async () => {
+          writeManagedRuntimeState(state);
+          options.onCaptured(state, { id: "app-id", workspacePath: "/workspaces/repo" });
+          throw new Error("synthetic initialization failed");
+        },
+      }),
+    }));
+    await expect(
+      workspaceEnsure(tmpDir, { initializeNew: true, containerTimeoutMs: 0, httpTimeoutMs: 0 }),
+    ).rejects.toThrow("synthetic initialization failed");
+    expect(writeManagedRuntimeState).toHaveBeenCalledExactlyOnceWith(state);
+    expect(startExactManagedServices).not.toHaveBeenCalled();
+    expect(runManagedPostStart).not.toHaveBeenCalled();
+    expect(
+      vi.mocked(runManagedProcessAction).mock.calls.every(([action]) => action.action === "status"),
+    ).toBe(true);
+    expect(replaceHostRoutesForRepo).not.toHaveBeenCalled();
+  });
 
   it.each([
     true,
