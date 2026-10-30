@@ -10,11 +10,13 @@ or assemble a sequence of repair commands from chat history.
 
 **Delivery status:** [0.6.2](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.2)
 is the latest published release. The 0.6.3 compatibility candidate in
-[draft PR #169](https://github.com/rschlaefli/devrouter/pull/169) remains held after
-Devsy 1.24.0 replacement failed agent acquisition. Successful preserving recovery
-of that synthetic fixture does not qualify clean replacement or establish
-consumer recovery. The [fresh-bootstrap plan](./2026-10-29-managed-fresh-bootstrap-plan.md#devsy-1240-qualification-checkpoint--release-held)
-owns the exact qualification evidence.
+[draft PR #169](https://github.com/rschlaefli/devrouter/pull/169) now passes the
+previously held Devsy 1.24.0 replacement after explicitly approved preparation
+through the existing verified-agent cache. Actual injected-agent bytes, changed
+container identity, retained volumes and database relationships, replay refusal
+and final stop are proved on the synthetic fixture. Publication and consumer
+acceptance remain pending. The [fresh-bootstrap plan](./2026-10-29-managed-fresh-bootstrap-plan.md#devsy-1240-qualification-checkpoint--release-held)
+owns the producing evidence and the historical failed qualification.
 
 This front section replaces the older current-status table and priority order.
 Historical execution records below remain evidence, not current completion
@@ -141,22 +143,105 @@ Fixture destination/provider/alias validation directly supports qualification;
 reuse that existing item. Do not make a global orchestration rewrite a
 prerequisite for fixing the product path.
 
-Current source continuation: the installed0.6.2 pilot-shaped synthetic repair
-refusal and preparation ordering are reproduced. A bounded correction in the
-existing lifecycle package moves eligibility before preparation, preserves strict
-repair admission, records only the owned early refusal as completed exit1, and
-uses ordinary-startup guidance with explicit hook-preservation prerequisites.
-Native/source/package and isolated installed evidence are recorded by the
+Current source delivery: draft PR #169 at
+`e138da8e5bf0fc18aff8c1741bdbf4ec2d6b4e50` contains the reproduced repair-refusal
+correction. Eligibility and missing linked identity are checked before
+preparation; only the owned early known refusal completes with exit 1. Later
+ownership checks and unknown-completion safeguards remain intact. Independent
+final review and [exact-head CI](https://github.com/rschlaefli/devrouter/actions/runs/41045651785)
+pass. The recorded full suite passed 3,483 tests with 13 platform skips; final
+focused checks passed 295 tests, and the exact installed candidate passed 33
+synthetic lifecycle cases. Package and source checks passed. These are recorded
+producing results, not tests rerun by this roadmap update. Evidence is recorded by the
 [lifecycle delivery plan](./2026-10-29-lifecycle-delivery-plan.md#ordinary-startup-refusal-correction--2026-10-30).
-Independent review and exact-head CI remain pending. This does not close the
-actual pilot's installed journey or the separate Devsy acquisition gate.
+The final receipt is `docs/project/_local/reviews/2026-10-30-refocus-delivery-evidence.json`
+in the existing task worktree; it supersedes earlier pending entries in that
+plan. The candidate is unmerged and unreleased. Later live Devsy acquisition and
+replacement qualification pass through the approved verified-cache path.
+Actual consumer acceptance remains open.
 
 The side-chat investigation changed only this current-direction section. The
 main Devrouter owner retains the execution record and next implementation batch.
 The task-binding helper still rejected the verified nested worktree plan; that
 shared-tooling limitation was observed without loosening its validator.
 
+### Main-session goal and independent continuation — 2026-10-30
+
+**Goal:** make ordinary `devrouter ensure <checkout> --profile <profile> --json`
+sufficient for the affected retained-environment journey: reach verified
+application readiness through bounded, preserving recovery, or return a precise,
+validated next action without journal inspection or repair-flag guessing.
+Qualify the intended provider combination, deliver the verified correction
+through authorized release and installation steps, and close the incident with
+owner-verified consumer acceptance. A truthful refusal is a valid safety outcome;
+it does not by itself close a consumer incident requiring a working environment.
+
+**Resume point and authority:** reuse `trees/rs/lifecycle-delivery`, branch
+`rs/fresh-bootstrap-devsy-124`, the two linked execution plans and draft PR #169.
+Refresh remote/head/worktree evidence before mutation and preserve concurrent
+owner changes. This side conversation authorizes this roadmap update, not new
+runtime, merge, release, installation or messaging effects. Recover the actual
+main-session user instructions behind each existing delivery approval once,
+record the references in the active execution plan, and continue their scope
+without repeated generic approval requests. A plan or handoff is not authority.
+The existing native goal is active on main-session readback. Its objective is
+the ordinary retained-environment journey described above; no replacement goal
+was created. The earlier blocked-state report is historical.
+
+1. **Select and reproduce the consumer path.** Inventory already-passing source
+   and installed evidence before adding work. Use a pilot-shaped retained
+   synthetic fixture to exercise ordinary ensure, a useful application operation,
+   the relevant fault, preserving recovery, and stop/resume. Establish hook
+   preservation, exact destination/provider identifiers and protected neighbour
+   before effects. Reuse valid receipts; rerun only changed or unqualified seams.
+   Complete this step when the ordinary path works or its specific product gap
+   has a reproducer and a bounded correction in the existing lifecycle machinery.
+2. **Resolve provider acquisition.** Capture exact CLI/provider/agent versions,
+   architecture, verified cache provenance and sanitized per-source acquisition
+   errors. The existing aggregate `agent binary not found` log does not identify
+   the failed source. Use a bounded isolated qualification under existing runtime
+   authority and the supported verified-cache/setup contract. Any required shared
+   setup change is a separate decision with an exact target and effect. Completion
+   requires successful intended replacement and preservation checks, or a precise
+   supported prerequisite/refusal with compatibility still explicitly unqualified.
+3. **Choose delivery from evidence.** If the provider gate passes, finish the
+   compatible candidate's applicable review, package checks and exact-head CI,
+   then perform only the merge/release/installation sequence covered by recovered
+   authority. If acquisition remains blocked, assess whether the independent
+   refusal correction can ship while retaining the previously qualified provider
+   boundary. Prepare and verify that bounded source alternative without claiming
+   Devsy 1.24.0 support; a changed release scope or delivery authority must be
+   resolved before publication. A provider blocker must not prevent independent
+   diagnostics, regression coverage or a reviewable source correction.
+4. **Obtain installed consumer acceptance.** Existing consumer owners retain
+   their runtime lanes. Under recovered coordination authority, supply the exact
+   artifact, supported provider combination, preserving prerequisites and a
+   concise acceptance sequence. Verify publication and the selected executable
+   separately. Require an owner receipt for ordinary startup, actual application
+   work, relevant recovery, retained data, stop/resume and neighbour functionality.
+   Record unknown or pending outcomes explicitly; an unavailable owner blocks
+   consumer closure, not independent source/package work.
+
+**Terminal evidence:** reviewed source revision and required CI; exact packed,
+published and selected-installed artifact identities where delivery is authorized;
+provider qualification for the claimed combination; and an affected consumer's
+successful ordinary journey with zero unauthorized data changes, initialization
+replay, duplicate uncertain dispatch or neighbour disruption. Broader portability
+claims require a second distinct consumer or enforcing harness. If a dependent
+gate cannot pass, preserve the completed evidence, exact blocker, owner and
+supported next action; keep the unmet acceptance open rather than declaring the
+goal complete. Continue all independent authorized steps before yielding.
+
+Keep sleep/capacity qualification, preview, cleanup and shared orchestration
+follow-ups in their existing lanes unless new evidence makes one necessary for
+this consumer path. Update this current-status section and the existing execution
+plan when evidence changes; avoid another status index or duplicate plan root.
+
 ## Approval summary
+
+Historical approval and baseline follow. The current goal, checkout, delivery
+status and acceptance above supersede historical version and active-goal claims;
+the original obligations and actual user authority remain distinct.
 
 The user approved execution of the complete consolidated reliability roadmap
 through a stable 0.1.0 release on 2026-09-13. This is an **executable batch**.

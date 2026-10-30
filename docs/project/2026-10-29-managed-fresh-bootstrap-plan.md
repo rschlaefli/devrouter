@@ -112,6 +112,37 @@ six finding dispositions remain the detailed contract and reusable plan critique
 
 ## Progress
 
+- Current continuation, 2026-10-30: the existing native goal is active and targets
+  ordinary preserving startup plus owner-verified consumer acceptance. The
+  source correction in PR169 is reviewed and passes exact-head CI at e138da8e.
+  Source acceptance does not close the consumer or provider qualification gates.
+- The bounded isolated agent-acquisition probe used existing
+  `prepareDevsyAgent` with task-local cache/lock paths. Official Devsy1.24.0
+  Linux arm64 acquisition and verification passed; inspection changed from
+  host-governed to managed-ready without changing shared setup. A new exact
+  synthetic replacement captures per-source evidence: no explicit binary,
+  incompatible Darwin executable, provider cache at1.19.0, and official1.24.0
+  HTTP acquisition failing DNS lookup. This diagnoses that producing run, not
+  every prior failure or a general transport outage. The replacement must reach
+  terminal state and canonical stop; both subsequently completed, with stopped
+  provider, zero routes and zero running attributed containers.
+- The human explicitly approved the exact shared1.24.0 cache preparation and
+  synthetic replacement. Existing verified acquisition populated that version's
+  official manifest and Linux arm64 agent without changing provider selection
+  or installing a CLI. Correct replacement then exited0; actual injected bytes
+  match the official asset, the app container ID changed, named volume identities
+  stayed equal, and actual main/shadow parent-child values survived preserving
+  startup. Repeat initialization refused. Final canonical stop and provider/route
+  readback pass. Producer remains executable source e138da8e; private receipts are
+  `/private/tmp/devrouter-acquisition-20261030/verified-replacement-proof.json`
+  and `approved-cache-proof.json`. The historical release hold below is resolved
+  for this verified-cache combination; release/installation/consumer acceptance
+  remain separate. Existing source reviews and exact-head checks are reusable.
+- Read-only candidate doctor against the exact pilot reports consistent capacity
+  history without modifying its journal or ledger. The candidate validator accepts
+  the named private journal. No history restoration or guard bypass is needed for
+  this observation. The pilot owner retains startup and hook-effect acceptance;
+  no consumer mutation or database query ran in this continuation.
 - Root outcome: explicit safe managed first initialization, then preserving
   everyday startup, without blocked or silently replayed initialization.
 - Authorized terminal: qualified patch release plus owner notification, or a
