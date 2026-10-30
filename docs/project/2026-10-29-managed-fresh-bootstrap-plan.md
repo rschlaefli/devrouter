@@ -318,6 +318,11 @@ release, a fallback reviewer or a passing existing CI suite does not close them.
 
 ## Devsy 1.24.0 qualification checkpoint — release held
 
+Historical checkpoint, superseded by the verified-cache qualification in
+Progress above. The earlier failure evidence remains below; replacement now
+passes for that prepared combination. Publication and consumer acceptance are
+still separate gates.
+
 Status: compatible source candidate in draft PR169; no merge, publication or
 installation. The conditional release gate remains open because a correctly
 configured provider replacement failed agent acquisition. The next boundary is
