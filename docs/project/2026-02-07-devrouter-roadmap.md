@@ -6,9 +6,27 @@ Use the [documentation map](../README.md) for supported behavior, [AGENTS.md](..
 
 ## Next package
 
-The current local reliability package is [evidence and stop recovery](./2026-10-26-reliability-evidence-repair.md).
 The [reliability acceptance roadmap](./2026-09-13-reliability-release-plan.md)
-owns the remaining integrated canary, host-suspend and consumer evidence.
+owns current priorities, delivery layers and the remaining integrated canary,
+host-suspend and consumer evidence. The earlier
+[evidence and stop-recovery package](./2026-10-26-reliability-evidence-repair.md)
+is delivered source with explicitly open live acceptance, not the next source fix.
+
+Primary-only app replacement and newer-writer diagnostics are released in
+[0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4) through
+[PR #173](https://github.com/rschlaefli/devrouter/pull/173). Merged-main and release
+CI pass; registry integrity, all 106 shipped members and the approved local
+installation match the tested package. Existing consumer owners received the
+release notice and retain receiving-host adoption and runtime acceptance.
+
+Retained-maintenance transport now has reviewed native evidence: 61 local
+fake-child cases and 56 existing source controls pass. The acceptance roadmap
+links the producing result. Trusted bootstrap, authoritative dependency/claim
+adapters, durable restart no-replay and the consumer's complete read-only probe
+context remain unqualified. Public implementation remains unapproved. Repeat
+replacement and shared-tooling improvements remain proposed follow-ups. Release
+or transport delivery does not close the integrated canary, host-suspend or
+consumer evidence.
 
 W2 — [Workspace resource accounting](./2026-08-16-workspace-resource-accounting-roadmap.md)
 was delivered in [PR #30](https://github.com/rschlaefli/devrouter/pull/30),
