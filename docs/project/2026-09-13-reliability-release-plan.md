@@ -60,6 +60,19 @@ The reproduced regression and native tests pass. That PR owns final review and
 exact-head CI. It changes no mixed-version availability promise and does not
 satisfy the maintenance or consumer-probe prerequisites.
 
+On 2026-10-31 the user approved coordinated CLI adoption before retained
+maintenance: participating agents and harnesses sharing journals use the same
+qualified release. Older-client coexistence is not promised. Exact package,
+participating client/harness adoption and downgrade qualification remain release
+gates; this policy decision authorizes no installation or activation.
+
+The detailed consumer requirements handoff was also approved here. Its owner
+verified that approval, but automatic approval review rejected the nonpublic
+return and requires approval directly in the sending task. No detailed payload
+was delivered. This transport/authority block is now the immediate prerequisite
+to reconciling the still-missing consumer semantic probe. No alternate retrieval
+or public maintenance implementation follows from the coordination approval.
+
 This front section replaces the older current-status table and priority order.
 Historical execution records below remain evidence, not current completion
 claims. Existing W0–W9, S1–S8, M0–M3 and Q01–Q36 obligations remain open wherever
@@ -78,7 +91,7 @@ The remaining recommendations are recorded here without creating new authority.
 
 | Work | Next acceptance and owner | Authority and boundary |
 | --- | --- | --- |
-| Retained maintenance contract | Source-only probes establish a candidate selective path, hook replay and released-reader limitations. Resolve mixed-version/global-enumeration policy and the consumer semantic probe; retain proved terminal stop as an accepted failure branch. Devrouter owner; consumer owner retains its probe. | Feasibility batch reached its reviewed blocker terminal. Public implementation is not authorized. A profile alone does not establish the promised isolation. |
+| Retained maintenance contract | Source-only probes establish a candidate selective path, hook replay and released-reader limitations. Apply approved coordinated CLI adoption, receive the permitted consumer requirements handoff and reconcile the semantic probe; retain proved terminal stop as an accepted failure branch. Devrouter owner; consumer owner retains its probe. | Feasibility batch reached its reviewed blocker terminal. Public implementation is not authorized. A profile alone does not establish the promised isolation. |
 | Replacement release preparation | Use the actual future writer version to verify expected older-reader refusal and retained receipts. Disclose the one-attempt-per-environment limit, adoption and downgrade constraints. Devrouter release owner. | Source evidence is complete; named release/publication/installation authority remains necessary. Reuse the unchanged candidate and synthetic proof. |
 | Consumer acceptance | Receiving replacement owner proves supported installed adoption and its own bounded useful-work journey; pilot owner proves its corrected PWA acceptance. | Their approvals, CI exceptions and runtime/data effects stay with their owners. Neither lane is closed by the source merge. |
 | Repeat replacement and shared tooling | Keep a proposed newer-stopped-generation contract for repeat replacement, preserving no-replay and unknown outcomes. Shared routing, result classification, task binding and fixture validation keep their recorded owners. | Proposed follow-ups; no receipt deletion, new supervisor, global routing rewrite or consumer takeover. |
