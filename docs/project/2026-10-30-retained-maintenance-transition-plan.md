@@ -2,9 +2,11 @@
 
 ## Approval summary
 
-Status: finite source-only feasibility complete with explicit compatibility and
-consumer-protocol blockers. The focused independent review found the proposed
-contract not implementation-ready. Main verified the load-bearing findings with
+Status: source-only feasibility complete. Coordinated CLI adoption and the
+detailed consumer requirements handoff were approved on 2026-10-31. The consumer
+protocol handoff is blocked by automatic approval review requiring approval in
+the sending task; public implementation remains separately scoped. The focused
+independent review found the proposed contract not implementation-ready. Main verified the load-bearing findings with
 additional zero-provider-effect hook and released-CLI probes. The original
 source-only authority covers this result and ordinary task-branch delivery;
 public maintenance implementation and runtime/data effects remain unapproved.
@@ -109,6 +111,34 @@ or upstream change from the evidence so far. Its requested identity-replay and
 pinned-sequence experiments pass as scoped above. Focused review and follow-up probes expose the unresolved compatibility and
 consumer-protocol limits below. The candidate contract is not implementation-ready.
 
+### Approved rollout decision — 2026-10-31
+
+The user approved coordinated CLI adoption before first retained-maintenance use.
+All participating agents and harnesses sharing Devrouter journals must use the
+same qualified release; later upgrades repeat that coordination. Older clients
+may refuse both the changed checkout and global journal enumeration. No
+mixed-version or unrelated-workspace availability promise is made for them.
+Preserve existing writer guards and every receipt. Do not introduce another
+machine-global registry, erase state or bypass old-client refusal.
+
+This resolves the operational compatibility ruling below. Before any later
+activation, the release owner still proves exact package/version compatibility,
+participating client paths and harness pins, adoption and downgrade limits.
+The approval chooses the rollout policy; it does not authorize publication or
+installation. Unknown or competing writer versions remain a refusal.
+
+The user also approved transfer of the reviewed detailed consumer requirements
+into this task. The original request was delivered, and the consumer owner
+verified the actual human approval. Its automatic approval review nevertheless
+rejected the detailed nonpublic return because that approval came from another
+task. Delivery now requires direct approval in the sending task. No requirements
+were received or retrieved through another route.
+
+The approved handoff excludes secrets, personal/production records and raw
+histories. Execution context, complete semantic predicates and implementation
+authority remain consumer-owned. Reconcile the source contract only after the
+handoff arrives; do not infer an existing qualified consumer capability.
+
 ### Candidate existing-seam contract (not implementation-ready)
 
 - Freeze both complete rendered models and the provider's actual recorded
@@ -166,9 +196,10 @@ startup, `run` owns one transition/body/restore, and `resume` restores only.
 
 ### Focused review outcome and blocking constraints
 
-The focused Opus 5.5 review completed with findings. The core selective
-composition is plausible and requires no demonstrated upstream change, but two
-requirements prevent an implementation-ready result:
+The focused Opus 5.5 review completed with findings on 2026-10-30. The core
+selective composition is plausible and requires no demonstrated upstream change.
+It identified the following requirements; the approved rollout decision above
+now resolves the first policy ruling, while its qualification evidence remains:
 
 1. **Older-client availability.** A closed probe uses checksum-matched released
    0.6.3 CLI bytes and isolated synthetic records. With a hypothetical 0.6.4
@@ -397,8 +428,9 @@ it. After worker loss, legacy interrupted-exec admission and the config guard
 must prevent ordinary startup/exec from exposing an incomplete maintenance
 state. Canonical non-destructive stop remains available with exact ownership.
 Released older clients refuse under that stamp even after canonical stop;
-version-coordinated availability and global enumeration remain blocking
-compatibility decisions. The new CLI must guard on the durable attempt itself,
+version-coordinated adoption is now the approved rollout policy and older
+clients receive no availability guarantee. The new CLI must guard on the durable
+attempt itself,
 not only on removable config or an active root operation.
 
 Do not add unknown top-level journal fields or a new global-format fence.
@@ -407,8 +439,9 @@ future release writes a newer record. Test the actual future package version,
 not merely an unchanged-version source build. Coordinate matching CLI adoption
 before activation; mixed-version availability is unqualified until demonstrated.
 Private maintenance records must remain outside strict journal enumeration.
-The existing global version-stamp refusal discovered above still requires a
-compatibility ruling; no unrelated-workspace availability claim is made.
+The existing global version-stamp refusal above is accepted under the approved
+coordinated-adoption policy; no older-client unrelated-workspace availability
+claim is made.
 
 On failed/unknown command completion, retain isolation and evidence; never
 replay the command or infer data-ready from a filename, missing process or exit
@@ -461,9 +494,9 @@ CI and draft delivery. Planning alone does not start that package.
 
 ### Proposed next source implementation batch
 
-Recommendation, not approved: after the blocking compatibility ruling and
-consumer protocol ownership are resolved, implement the
-candidate contract on one ordinary
+Recommendation, not approved: coordinated adoption is settled. After the
+consumer requirements handoff resolves the protocol and its ownership, implement
+the candidate contract on one ordinary
 task branch, using the existing config/CLI/exec worker, operation store,
 `devcontainer-profile.ts`, `devpod-environment.ts`, `devsy-exec-proof.ts` and
 managed stop/recovery seams. Add the narrow private attempt schema and canonical
@@ -554,16 +587,21 @@ stop, controller admission and global journal enumeration even after stop proof.
 The private receipt remains intact. The reviewed findings and limits above are
 binding; no upstream impossibility or need for a new engine is inferred.
 
-Current dependent blockers are the operational mixed-version/global-enumeration
-contract and the absent consumer-owned read-only semantic probe. A proved terminal
+The user has resolved the operational mixed-version/global-enumeration ruling
+by approving coordinated CLI adoption. Detailed consumer requirements transfer
+is also approved and requested from the existing owner, but its automatic
+approval review rejected the return and requires approval directly in the
+sending task. No detailed requirements were delivered. Reconcile a permitted
+reply with the still-absent consumer-owned read-only semantic probe. A proved
+terminal
 stop with an unavailable probe context is an accepted consumer failure outcome;
 no automatic probe-service restart is required or authorized. The next source implementation package
-is concrete but unapproved and remains gated on those decisions. The next action is to return these blockers; no further prototype expands the
-approved terminal or supplies public implementation authority.
-Return the source-only result to the requesting owner and reconcile the existing
-roadmap; any later implementation/runtime/data/release step needs its named scope.
+is concrete but unapproved. Next, incorporate the authorized consumer handoff
+and identify the exact remaining protocol work, then present the finite source
+implementation batch. The policy/handoff approval does not reopen feasibility
+experiments or authorize runtime/data/release effects.
 
-Native goal remains blocked on the broader consumer outcome. No replacement goal,
+Native goal inspection currently returns none. No replacement goal,
 public maintenance implementation, runtime, release, installation, reset or
 deletion occurred. Native task binding still rejects the contained worktree plan;
 actual human authority remains independently verified in the existing private
