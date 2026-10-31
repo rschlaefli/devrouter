@@ -66,12 +66,21 @@ qualified release. Older-client coexistence is not promised. Exact package,
 participating client/harness adoption and downgrade qualification remain release
 gates; this policy decision authorizes no installation or activation.
 
-The detailed consumer requirements handoff was also approved here. Its owner
-verified that approval, but automatic approval review rejected the nonpublic
-return and requires approval directly in the sending task. No detailed payload
-was delivered. This transport/authority block is now the immediate prerequisite
-to reconciling the still-missing consumer semantic probe. No alternate retrieval
-or public maintenance implementation follows from the coordination approval.
+The detailed consumer requirements handoff has now arrived after direct
+sending-side approval, closing the messaging block. Its complete private
+requirements remain with the existing owners. The available consumer context
+still cannot supply all semantic proof; a frozen-source, restricted-input and
+fresh evidence transport must be concretely defined before maintenance
+implementation. No complete unchanged-context verifier is established.
+
+A separately approved source-only release-preparation batch now delivers
+[draft PR #173](https://github.com/rschlaefli/devrouter/pull/173) for 0.6.4,
+containing merged app replacement and reviewed diagnostics. The actual packed
+0.6.4 writer and checksum-matched released 0.6.3 reader pass bounded refusal
+and receipt-retention qualification with provider effects denied. Native and
+package checks pass; that draft owns independent final review and exact-head CI.
+Ready/merge, publication, installation and the receiving preservation test remain
+separately gated. This package does not implement retained maintenance.
 
 This front section replaces the older current-status table and priority order.
 Historical execution records below remain evidence, not current completion
@@ -91,8 +100,8 @@ The remaining recommendations are recorded here without creating new authority.
 
 | Work | Next acceptance and owner | Authority and boundary |
 | --- | --- | --- |
-| Retained maintenance contract | Source-only probes establish a candidate selective path, hook replay and released-reader limitations. Apply approved coordinated CLI adoption, receive the permitted consumer requirements handoff and reconcile the semantic probe; retain proved terminal stop as an accepted failure branch. Devrouter owner; consumer owner retains its probe. | Feasibility batch reached its reviewed blocker terminal. Public implementation is not authorized. A profile alone does not establish the promised isolation. |
-| Replacement release preparation | Use the actual future writer version to verify expected older-reader refusal and retained receipts. Disclose the one-attempt-per-environment limit, adoption and downgrade constraints. Devrouter release owner. | Source evidence is complete; named release/publication/installation authority remains necessary. Reuse the unchanged candidate and synthetic proof. |
+| Retained maintenance contract | Source-only probes establish a candidate selective path, hook replay and released-reader limitations. Apply approved coordinated CLI adoption and reconcile the received requirements into a concrete source/input/evidence transport and full-context probe; retain proved terminal stop as an accepted failure branch. Devrouter owner; consumer owner retains its probe. | Feasibility batch reached its reviewed blocker terminal. Public implementation is not authorized. A profile alone does not establish the promised isolation. |
+| Replacement release preparation | [Draft #173](https://github.com/rschlaefli/devrouter/pull/173) prepares 0.6.4. Actual-version older-reader refusal, receipt retention and exact package bytes pass; finish its review and exact-head CI. Devrouter release owner. | Source-only preparation/draft delivery is approved. Ready/merge, publication, installation and consumer runtime remain separate. Reuse unchanged component and synthetic proof. |
 | Consumer acceptance | Receiving replacement owner proves supported installed adoption and its own bounded useful-work journey; pilot owner proves its corrected PWA acceptance. | Their approvals, CI exceptions and runtime/data effects stay with their owners. Neither lane is closed by the source merge. |
 | Repeat replacement and shared tooling | Keep a proposed newer-stopped-generation contract for repeat replacement, preserving no-replay and unknown outcomes. Shared routing, result classification, task binding and fixture validation keep their recorded owners. | Proposed follow-ups; no receipt deletion, new supervisor, global routing rewrite or consumer takeover. |
 
