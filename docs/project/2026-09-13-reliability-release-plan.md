@@ -51,12 +51,22 @@ any separate consumer failures remain open until producing evidence arrives.
 No consumer runtime was started by this release batch.
 
 Retained Compose isolation and restoration remain separate from primary app
-replacement. The [maintenance feasibility record](https://github.com/rschlaefli/devrouter/blob/fa7e1147/docs/project/2026-10-30-retained-maintenance-transition-plan.md)
-reached its reviewed blocker terminal. The detailed requirements handoff is
-received, but a concrete frozen-source, restricted-input and fresh-evidence
-transport for the complete consumer probe is still missing. Public maintenance
-implementation and runtime/data effects remain unapproved. A proved terminal
-stop remains an accepted failure branch.
+replacement. The [reviewed maintenance result](https://github.com/rschlaefli/devrouter/blob/c959de7a40c298e94f41198b821abe2634e75e17/docs/project/2026-10-30-retained-maintenance-transition-plan.md#reviewed-transport-result--2026-10-31)
+now includes the separately approved native-only framed-input transport proof:
+61 real-pipe/fake-child cases and 56 unchanged source-seam controls pass. Claude
+Opus 5.5 reviewed the complete experiment and one correction; both verified low
+findings are fixed, with no remaining findings. The requesting consumer owner
+received the result. No shipped implementation or live provider effect occurred.
+
+The fake verifies frozen byte delivery without executing the supplied source.
+Its proof and claim adapters are synthetic. Trusted bootstrap execution, bounded
+authoritative dependency/fence/claim proof and durable restart no-replay remain
+unqualified. The consumer still owns complete read-only cessation and paired-store
+readiness predicates with an actually runnable restricted-input context. These
+are the remaining prerequisites; a passing transport experiment does not qualify
+semantic readiness or restoration. Public maintenance implementation and runtime/
+data effects remain unapproved. Proved terminal stop stays an accepted failure
+branch.
 
 The human's approved conditional delivery sequence is complete: ready and merge
 #173, verify merged-main CI, publish through the existing pipeline, verify the
@@ -76,7 +86,7 @@ The remaining recommendations are recorded here without creating new authority.
 
 | Work | Next acceptance and owner | Authority and boundary |
 | --- | --- | --- |
-| Retained maintenance contract | Source-only probes establish a candidate selective path, hook replay and released-reader limitations. Apply approved coordinated CLI adoption and reconcile the received requirements into a concrete source/input/evidence transport and full-context probe; retain proved terminal stop as an accepted failure branch. Devrouter owner; consumer owner retains its probe. | Feasibility batch reached its reviewed blocker terminal. Public implementation is not authorized. A profile alone does not establish the promised isolation. |
+| Retained maintenance contract | Native transport proof is reviewed: 61 fake-child cases and 56 existing controls pass. Next settle trusted bootstrap and authoritative dependency/claim adapters with the consumer-owned complete read-only probe and runnable context. Devrouter and consumer owners retain their respective source. | Approved transport experiment reached its terminal. Public implementation, live proof and consumer data effects remain separate. Matching verdict IDs alone are correlation. |
 | Replacement release delivery | [0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4) is merged, published and verified locally; registry integrity and all 106 package members pass. Consumer owners received the notice. Devrouter release owner. | Approved delivery terminal reached. Receiving-host/harness adoption and consumer runtime acceptance remain with their owners. |
 | Consumer acceptance | Receiving replacement owner proves supported installed adoption and its own bounded useful-work journey; pilot owner proves its corrected PWA acceptance. | Their approvals, CI exceptions and runtime/data effects stay with their owners. Neither lane is closed by the release or local installation. |
 | Repeat replacement and shared tooling | Keep a proposed newer-stopped-generation contract for repeat replacement, preserving no-replay and unknown outcomes. Shared routing, result classification, task binding and fixture validation keep their recorded owners. | Proposed follow-ups; no receipt deletion, new supervisor, global routing rewrite or consumer takeover. |

@@ -19,12 +19,14 @@ CI pass; registry integrity, all 106 shipped members and the approved local
 installation match the tested package. Existing consumer owners received the
 release notice and retain receiving-host adoption and runtime acceptance.
 
-Retained-maintenance source-only feasibility reached its reviewed blocker
-terminal. The next unresolved contract is its transport for frozen source, restricted inputs and fresh
-evidence and complete consumer probe; public implementation remains
-unapproved. Repeat replacement and shared-tooling improvements remain proposed
-follow-ups in the acceptance roadmap. Release delivery does not close the
-remaining integrated canary, host-suspend or consumer evidence.
+Retained-maintenance transport now has reviewed native evidence: 61 local
+fake-child cases and 56 existing source controls pass. The acceptance roadmap
+links the producing result. Trusted bootstrap, authoritative dependency/claim
+adapters, durable restart no-replay and the consumer's complete read-only probe
+context remain unqualified. Public implementation remains unapproved. Repeat
+replacement and shared-tooling improvements remain proposed follow-ups. Release
+or transport delivery does not close the integrated canary, host-suspend or
+consumer evidence.
 
 W2 — [Workspace resource accounting](./2026-08-16-workspace-resource-accounting-roadmap.md)
 was delivered in [PR #30](https://github.com/rschlaefli/devrouter/pull/30),
