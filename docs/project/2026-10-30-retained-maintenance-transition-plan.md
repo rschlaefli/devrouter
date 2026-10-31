@@ -4,8 +4,9 @@
 
 Status: source-only feasibility complete. Coordinated CLI adoption and the
 detailed consumer requirements handoff were approved on 2026-10-31. The consumer
-protocol handoff is blocked by automatic approval review requiring approval in
-the sending task; public implementation remains separately scoped. The focused
+requirements handoff has now arrived after sending-side approval. A qualified
+execution context and private source/input/evidence protocol remain missing;
+public implementation remains separately scoped. The focused
 independent review found the proposed contract not implementation-ready. Main verified the load-bearing findings with
 additional zero-provider-effect hook and released-CLI probes. The original
 source-only authority covers this result and ordinary task-branch delivery;
@@ -127,17 +128,26 @@ participating client paths and harness pins, adoption and downgrade limits.
 The approval chooses the rollout policy; it does not authorize publication or
 installation. Unknown or competing writer versions remain a refusal.
 
-The user also approved transfer of the reviewed detailed consumer requirements
-into this task. The original request was delivered, and the consumer owner
-verified the actual human approval. Its automatic approval review nevertheless
-rejected the detailed nonpublic return because that approval came from another
-task. Delivery now requires direct approval in the sending task. No requirements
-were received or retrieved through another route.
+The user also approved transfer of the reviewed detailed consumer requirements.
+The sending-side approval requirement was subsequently satisfied and the handoff
+has arrived. That messaging block is closed. The detailed coordination payload
+and its owner-reported review are retained privately; receipt supplies neither
+an implemented probe nor consumer/runtime/data authority.
 
-The approved handoff excludes secrets, personal/production records and raw
-histories. Execution context, complete semantic predicates and implementation
-authority remain consumer-owned. Reconcile the source contract only after the
-handoff arrives; do not infer an existing qualified consumer capability.
+The received proposal confirms that the currently available context cannot
+supply the complete semantic proof. A jointly reviewed frozen-source, private
+restricted-input and fresh evidence-delivery contract remains necessary.
+Correlation IDs and a successful command exit do not authenticate predicates.
+No complete unchanged-context implementation is established. The existing
+consumer owner retains its source, data semantics and execution-context decision.
+
+A bounded Devrouter source check found reusable stdin byte delivery in
+`managed-post-start.ts`, but retained exec in `devsy-exec.ts` inherits streams
+and `DevsyExecProof` binds the running primary. They do not expose a private
+bounded probe protocol for other managed targets. This identifies missing
+contract work without proving a new engine or verifier environment necessary.
+Frozen multi-target orchestration and a separately qualified verifier context
+remain unselected alternatives; neither is implemented or authorized here.
 
 ### Candidate existing-seam contract (not implementation-ready)
 
@@ -587,19 +597,20 @@ stop, controller admission and global journal enumeration even after stop proof.
 The private receipt remains intact. The reviewed findings and limits above are
 binding; no upstream impossibility or need for a new engine is inferred.
 
-The user has resolved the operational mixed-version/global-enumeration ruling
-by approving coordinated CLI adoption. Detailed consumer requirements transfer
-is also approved and requested from the existing owner, but its automatic
-approval review rejected the return and requires approval directly in the
-sending task. No detailed requirements were delivered. Reconcile a permitted
-reply with the still-absent consumer-owned read-only semantic probe. A proved
-terminal
-stop with an unavailable probe context is an accepted consumer failure outcome;
-no automatic probe-service restart is required or authorized. The next source implementation package
-is concrete but unapproved. Next, incorporate the authorized consumer handoff
-and identify the exact remaining protocol work, then present the finite source
-implementation batch. The policy/handoff approval does not reopen feasibility
-experiments or authorize runtime/data/release effects.
+The user resolved the operational mixed-version/global-enumeration ruling
+through coordinated CLI adoption. The approved detailed consumer handoff has
+arrived, closing the messaging approval block. Its proposed API remains
+conditional on a complete safe context, private restricted inputs and trusted
+provider/consumer proof delivery. The bounded source check above identifies
+those missing seams; it does not qualify live use or require another supervisor.
+
+A proved terminal stop remains an accepted failure outcome; automatic probe
+service restart is optional additional scope. The next maintenance decision is
+a concrete source/input/evidence transport and full-context contract. Do not
+ask for approval of an unspecified verifier or ship a permanently refusing API
+as complete. Maintenance implementation and runtime/data effects remain gated.
+The separate approved release-preparation package uses existing replacement
+and diagnostics; it does not expand this contract or prove consumer recovery.
 
 Native goal inspection currently returns none. No replacement goal,
 public maintenance implementation, runtime, release, installation, reset or
