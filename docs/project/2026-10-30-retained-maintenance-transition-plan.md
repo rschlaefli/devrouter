@@ -4,8 +4,10 @@
 
 Status: source-only feasibility complete. Coordinated CLI adoption and the
 detailed consumer requirements handoff were approved on 2026-10-31. The consumer
-requirements handoff has now arrived after sending-side approval. A qualified
-execution context and private source/input/evidence protocol remain missing;
+requirements handoff has now arrived after sending-side approval. A synthetic
+framed-input transport candidate now has reviewed native evidence.
+Its trusted bootstrap, authoritative dependency/claim adapters and complete
+consumer probe context remain missing;
 public implementation remains separately scoped. The focused
 independent review found the proposed contract not implementation-ready. Main verified the load-bearing findings with
 additional zero-provider-effect hook and released-CLI probes. The original
@@ -42,7 +44,7 @@ is merged at `d2fba69eaad9bc6464d412776e9241b66ea33f32`, with a complete tree
 equal to reviewed `f84a174f9f5bc875de0c63c2196713e10072ecd1` and passing
 [merged-main CI](https://github.com/rschlaefli/devrouter/actions/runs/41121149134).
 Its review, package-byte proof and one bounded synthetic qualification passed.
-It is unchanged-configuration, primary-only replacement and remains unreleased.
+It is unchanged-configuration, primary-only replacement and is released in 0.6.4.
 It does not establish retained overlay apply/restore support.
 
 - `src/core/devcontainer-profile.ts:634` starts exact services with
@@ -617,3 +619,51 @@ public maintenance implementation, runtime, release, installation, reset or
 deletion occurred. Native task binding still rejects the contained worktree plan;
 actual human authority remains independently verified in the existing private
 record without hook/client reconfiguration.
+
+### Approved synthetic transport experiment — 2026-10-31
+
+A newly approved finite batch resumes this existing owner at released 0.6.4.
+Its independently critiqued contract tests frozen framed-stdin source, bounded
+synthetic private inputs, pinned fake dependency/fence identity, captured verdicts,
+refusal, interruption and no replay through real local pipes. Evidence and the
+three temporary executable artifacts stay in the existing ignored review area.
+The actual human batch approval was independently recovered; no failed outbound
+relay is retried. This does not extend the earlier completed feasibility batch
+or authorize maintenance implementation or consumer/runtime/data effects.
+
+First acceptance is exact bounded byte delivery and refusal before dispatch on
+identity drift. Terminal is one reviewed contract with native evidence, or the
+precise missing capability. Existing owner/consumer boundaries remain. The producing steps
+were the temporary prototype, named native acceptance and existing source-seam
+controls. The reviewed result below supersedes this intermediate status.
+
+### Reviewed transport result — 2026-10-31
+
+The approved native-only batch reached its terminal: 61 real-pipe cases and 56
+unchanged exec/proof/helper controls pass at released source `60cd90ee`. Frozen
+source/input bounds, literal fake-child argv, owned/running dependency selection,
+fence/population/storage drift, strict fresh verdicts, private-output suppression,
+known/unknown outcomes and no automatic replay are exercised. A new wrapper
+cannot reuse a claim retained by the fake claim owner. The prototype remains
+ignored and is not product code or a public execution API.
+
+Claude Opus 5.5/high completed the independent integrated review and one focused
+correction. Two low findings were accepted and fixed: encoded-header bounds now
+precede claiming, and a post-claim proof failure keeps its accurate outcome.
+Both have native regression coverage; the corrected review has no findings.
+No installation, provider/container command, consumer change or data effect ran.
+
+The requested package-manager wrapper refused an automatic module-tree rebuild.
+The identical installed Vitest 4.0.18 runner passed the 56 controls directly under
+Node 24.16.0; no dependencies were installed or removed. Documentation checks use
+per-command warning mode to prevent automatic installation while preserving the
+actual checks. The existing dependency-metadata warning is retained.
+
+This establishes bounded local transport feasibility only. The fake verifies
+byte delivery without executing the supplied source; matching IDs/digests are
+correlation, not semantic authentication. A trusted frozen bootstrap, bounded
+fresh authoritative dependency/fence/claim proof and durable restart no-replay
+remain unqualified. The consumer still owns a complete read-only cessation and
+paired-store data-ready predicate with an actually runnable restricted-input
+context. Those are the exact remaining blockers before maintenance implementation
+or live qualification can be proposed. No current consumer is declared recovered.
