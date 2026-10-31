@@ -51,6 +51,15 @@ explicit compatibility/probe blockers. The proposed selective composition needs
 no demonstrated new engine, but its contract is not implementation-ready. Public
 maintenance implementation, runtime/data effects and later delivery remain gated.
 
+A diagnostic follow-up on 2026-10-31 supplies a distinct newer-writer refusal
+through global enumeration and capacity diagnostics in
+[draft PR #172](https://github.com/rschlaefli/devrouter/pull/172).
+The existing refusal, journal bytes and full-history requirement remain intact;
+operators are directed to a compatible CLI instead of history restoration.
+The reproduced regression and native tests pass. That PR owns final review and
+exact-head CI. It changes no mixed-version availability promise and does not
+satisfy the maintenance or consumer-probe prerequisites.
+
 This front section replaces the older current-status table and priority order.
 Historical execution records below remain evidence, not current completion
 claims. Existing W0–W9, S1–S8, M0–M3 and Q01–Q36 obligations remain open wherever
