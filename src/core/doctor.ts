@@ -328,6 +328,8 @@ const CAPACITY_RECOVERY_BY_CAUSE: Partial<Record<CapacityHistoryCause, string>> 
     "Restore read access to the reliability journal directory, then retry.",
   "journal-invalid":
     "Preserve the named journal entry and restore verified history before retrying admission.",
+  "journal-writer-newer":
+    "Use the devrouter CLI that wrote the named journal or a newer version before retrying admission; preserve the journal.",
   "journal-unreadable":
     "Preserve the named journal entry and restore verified history before retrying admission.",
   "journal-entry-unsafe":
