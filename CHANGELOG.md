@@ -4,6 +4,33 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-10-31
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.6.4.md
+
+### Enhanced
+
+- Explicit `ensure --replace-app` replaces one proved stopped primary container
+  on qualified manual Devsy 1.24.0 while retaining dependency identities and
+  named/bind storage. The primary writable layer is discarded. A durable
+  single-use attempt prevents replay through failure, stop or journal rollover.
+
+### Fixed
+
+- A newer-writer journal retains its distinct refusal through global enumeration
+  and capacity diagnostics, with compatible-CLI guidance instead of history
+  restoration advice. Journal bytes and fail-closed admission are preserved.
+
+### Compatibility
+
+- Coordinate participating CLI and harness adoption before this release writes
+  shared lifecycle state. Released 0.6.3 refuses newer-writer records, including
+  stop and global enumeration; an older CLI is not a downgrade recovery path.
+  Preserve journals and replacement receipts. Consumer qualification remains
+  separate from source, package, publication and installation proof.
+
 ## [0.6.3] - 2026-10-30
 
 ### Agent Adaptation Prompt

@@ -22,6 +22,7 @@ import {
   publishStartupWitness,
   type ReliabilityConsumerProtection,
   type ReliabilityIdentity,
+  ReliabilityJournalError,
   type ReliabilityOperationRecord,
   type ReliabilityPreparationReceipt,
   readAppReplacementAttempt,
@@ -204,15 +205,59 @@ describe("reliability record version skew", () => {
     expect(record?.writtenByVersion).toMatch(/^\d+\.\d+\.\d+/);
   });
 
-  it("refuses records from a newer CLI with an upgrade instruction", () => {
+  it("classifies newer-writer refusals without rewriting or skipping history", () => {
+    updateReliabilityOperation(identity, () => undefined);
+    const neighbour = { ...identity, repoPath: path.join(identity.repoPath, "neighbour") };
+    updateReliabilityOperation(neighbour, () => undefined);
+    const file = reliabilityOperationPath(identity);
+    const record = JSON.parse(fs.readFileSync(file, "utf8"));
+    record.writtenByVersion = "99.0.0-synthetic-private-writer-value";
+    fs.writeFileSync(file, `${JSON.stringify(record)}\n`);
+    const before = fs.readFileSync(file);
+    const neighbourBefore = fs.readFileSync(reliabilityOperationPath(neighbour));
+    const mutate = vi.fn();
+    vi.mocked(writeFileAtomically).mockClear();
+
+    for (const read of [
+      () => readReliabilityOperation(identity),
+      () => updateReliabilityOperation(identity, mutate),
+      () => listReliabilityOperations(),
+    ]) {
+      let failure: unknown;
+      try {
+        read();
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(ReliabilityJournalError);
+      expect(failure).toMatchObject({
+        cause: "journal-writer-newer",
+        location: path.basename(file),
+      });
+      expect(String(failure)).not.toContain(record.writtenByVersion);
+    }
+    expect(() => createLifecycleCapacityStore().read()).toThrow(
+      expect.objectContaining({
+        code: "capacity-history-unprovable",
+        cause: "journal-writer-newer",
+        location: path.basename(file),
+      }),
+    );
+    expect(mutate).not.toHaveBeenCalled();
+    expect(writeFileAtomically).not.toHaveBeenCalled();
+    expect(fs.readFileSync(file)).toEqual(before);
+    expect(fs.readFileSync(reliabilityOperationPath(neighbour))).toEqual(neighbourBefore);
+    expect(fs.existsSync(path.join(fixture.root, "controller"))).toBe(false);
+  });
+
+  it.each([null, 42, {}])("keeps malformed writer metadata classified as invalid", (writer) => {
     updateReliabilityOperation(identity, () => undefined);
     const file = reliabilityOperationPath(identity);
     const record = JSON.parse(fs.readFileSync(file, "utf8"));
-    record.writtenByVersion = "99.0.0";
+    record.writtenByVersion = writer;
     fs.writeFileSync(file, `${JSON.stringify(record)}\n`);
-    expect(() => readReliabilityOperation(identity)).toThrow(/upgrade devrouter/);
-    expect(() => updateReliabilityOperation(identity, () => undefined)).toThrow(
-      /upgrade devrouter/,
+    expect(() => listReliabilityOperations()).toThrow(
+      expect.objectContaining({ cause: "journal-invalid", location: path.basename(file) }),
     );
   });
 

@@ -733,8 +733,10 @@ function validate(record: ReliabilityOperationRecord, identity: ReliabilityIdent
     record.writtenByVersion !== undefined &&
     compareCliVersions(record.writtenByVersion, installedCliVersion()) > 0
   ) {
-    throw new Error(
-      `Reliability record was last written by devrouter ${record.writtenByVersion}, which is newer than the installed ${installedCliVersion()}; upgrade devrouter (devrouter upgrade) before running lifecycle commands.`,
+    throw new ReliabilityJournalError(
+      "journal-writer-newer",
+      journalEntryLocation(path.basename(reliabilityOperationPath(identity))),
+      "Reliability record was written by a newer devrouter CLI; use a matching or newer CLI before retrying lifecycle commands. Preserve the journal.",
     );
   }
   keys(record.identity, ["repoPath", "workspace", "provider"]);

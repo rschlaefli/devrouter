@@ -360,8 +360,10 @@ Refusals name the blocking field and the canonical remediation instead of a
 bare "blocked".
 
 Records are stamped with `writtenByVersion`. A record written by a newer CLI is
-refused with an upgrade instruction before any lifecycle step, so version skew
-surfaces as one explicit message instead of new refusals mid-flight.
+refused with compatible-CLI guidance before any lifecycle step. This includes
+stop and global journal enumeration; global capacity history remains unprovable
+rather than returning partial records. Writer stamps and durable receipts remain
+intact, so an older CLI cannot bypass the refusal by claiming stopped state.
 
 ## Capacity admission (opt-in)
 

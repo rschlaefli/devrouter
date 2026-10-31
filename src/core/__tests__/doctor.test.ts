@@ -664,3 +664,15 @@ it("names the bounded journal cause and entry of an unprovable history", async (
   });
   expect(check?.suggestion).toContain("Move the named unrecognised entry");
 });
+
+it("reports newer-writer capacity history with its distinct cause", async () => {
+  const location = `${"a".repeat(64)}.json`;
+  vi.mocked(createLifecycleCapacityStore).mockImplementationOnce(() => {
+    throw new CapacityHistoryError("capacity-history-unprovable", "journal-writer-newer", location);
+  });
+  const report = await buildDoctorReport({ repo: tmpDir });
+  expect(report.checks.find((entry) => entry.id === "global.capacity-ledger")).toMatchObject({
+    level: "error",
+    details: `capacity-history-unprovable; journal-writer-newer; at ${location}`,
+  });
+});
