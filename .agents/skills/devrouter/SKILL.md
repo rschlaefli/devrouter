@@ -555,3 +555,7 @@ and named/bind mounts must remain. One durable attempt cannot be retried after
 failure or uncertainty. Use canonical stop/stop --repair for proved recovery;
 never clear the receipt or substitute raw provider recreation. See
 `docs/DEVCONTAINER.md` for the full contract. This does not apply Compose changes.
+
+Lifecycle journals retain the writing CLI version. Older CLIs refuse newer
+records, including stop and global enumeration. Never edit a writer stamp or
+replacement receipt to bypass that refusal.
