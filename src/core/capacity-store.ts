@@ -56,6 +56,7 @@ export type CapacityHistoryCause =
   | "journal-unreadable"
   | "journal-entry-unsafe"
   | "journal-invalid"
+  | "journal-writer-newer"
   | "journal-identity-mismatch"
   | "journal-unstable"
   | "journal-enumeration-failed";
