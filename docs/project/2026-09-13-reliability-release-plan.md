@@ -1,6 +1,6 @@
 # Reliable managed development environments
 
-## Current direction and acceptance — 2026-10-30
+## Current direction and acceptance — 2026-10-31
 
 **Outcome: an agent asks for an environment once, then works.** Devrouter should
 reach verified application readiness through bounded, preserving recovery. When
@@ -8,89 +8,65 @@ it cannot, it should explain the specific obstruction and return the smallest
 validated next action. Agents should not need to infer internal lifecycle state
 or assemble a sequence of repair commands from chat history.
 
-**Delivery status:** [0.6.3](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.3)
-is published from merged revision `525b4e23f2e4cb0ac3319a1abedde59020680d28`
-through [PR #169](https://github.com/rschlaefli/devrouter/pull/169).
-The merged tree equals reviewed candidate `094d7d8d`; its
-[release workflow](https://github.com/rschlaefli/devrouter/actions/runs/41075117143)
-passes. Registry integrity, all 105 package members and the explicitly approved
-selected Volta installation match the tested artifact. Devsy 1.24.0 synthetic
-replacement passes after approved verified-agent preparation: actual agent bytes,
-changed container identity, retained volumes and database relationships, replay
-refusal and final stop are proved. The affected consumer's one approved ordinary
-full-profile startup also passed on installed 0.6.3. Its owner verified retained
-content, delegated login and sampled application interactions. Full acceptance
-is blocked by a separate PWA server-render crash in `useDefaultLayout`
-(`localStorage is not defined`). Canonical stop recovery passed; final readback
-proves the exact provider and original containers stopped, retained mounts and
-volumes, zero checkout routes and no active journal worker. Native checks and
-independent review passed for the exact consumer source. An explicit DEV-only
-exception allowed startup before hosted CI; hosted consumer CI and merge remain
-blocked. The
-[fresh-bootstrap plan](./2026-10-29-managed-fresh-bootstrap-plan.md#progress)
-owns the producing evidence and historical failed qualification.
+**Delivery status:** [0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4)
+is published from merged revision `60cd90ee547a805e920528db406fc7cf6f8ac3d8`
+through [PR #173](https://github.com/rschlaefli/devrouter/pull/173).
+The complete merged tree equals reviewed candidate `6920eb560a96c7e0e4af35b5deae8749a7ebcf37`.
+[Exact-head CI](https://github.com/rschlaefli/devrouter/actions/runs/41211903258),
+[merged-main CI](https://github.com/rschlaefli/devrouter/actions/runs/41216343189)
+and the [release/check/publish workflow](https://github.com/rschlaefli/devrouter/actions/runs/41216931794)
+pass. Registry integrity and all 106 package members match the tested bytes and
+modes. The approved local Volta installation and every PATH-visible executable
+also pass exact-member, version, replacement-help and adaptation-prompt checks.
+The publication archive has a different compressed digest from the held local
+archive; every tar member, header, file byte and mode matches. The separately
+verified registry integrity covers the published archive.
 
-The receiving replacement owner has verified 0.6.3 adoption but holds startup:
-that release has no public managed app-container replacement command.
-[PR #171](https://github.com/rschlaefli/devrouter/pull/171) now supplies
-`ensure --replace-app`, merged at `d2fba69eaad9bc6464d412776e9241b66ea33f32`.
-Its complete tree equals reviewed `f84a174f`; both
-[exact-head CI](https://github.com/rschlaefli/devrouter/actions/runs/41116673607)
-and [merged-main CI](https://github.com/rschlaefli/devrouter/actions/runs/41121149134)
-pass. Independent review, packed-byte verification and the one approved synthetic
-replacement completed, ending canonically stopped with retained data. This is
-merged source, not publication, installation or receiving-consumer recovery.
+This release includes `ensure --replace-app`, delivered by
+[PR #171](https://github.com/rschlaefli/devrouter/pull/171), and the newer-writer
+refusal diagnostics prepared in [draft PR #172](https://github.com/rschlaefli/devrouter/pull/172).
+The diagnostic changes are already included through #173; a separate #172
+merge is unnecessary for 0.6.4. Its independent PR state is unchanged.
+Exact ownership, preserving hooks, retained resources and the durable
+single-attempt/no-replay guards remain. Existing independent component reviews,
+3,520 native tests with 13 platform skips, packed-byte qualification and the
+completed bounded synthetic replacement remain the source/fixture evidence.
+That fixture ended canonically stopped with retained synthetic data. Actual
+receiving-consumer recovery is not established by release or installation.
 The [bootstrap plan](./2026-10-29-managed-fresh-bootstrap-plan.md#progress)
-owns that evidence.
+owns its earlier producing evidence and qualification limits.
 
-A third consumer needs retained Compose isolation and restoration, which primary
-replacement does not provide. Its separately reviewed
-[maintenance plan](https://github.com/rschlaefli/devrouter/blob/rs/retained-maintenance-plan/docs/project/2026-10-30-retained-maintenance-transition-plan.md)
-completed its finite source-only feasibility batch with reviewed evidence and
-explicit compatibility/probe blockers. The proposed selective composition needs
-no demonstrated new engine, but its contract is not implementation-ready. Public
-maintenance implementation, runtime/data effects and later delivery remain gated.
+The actual packed 0.6.4 writer and checksum-matched released 0.6.3 reader pass
+bounded refusal and receipt-retention qualification with provider effects denied.
+Participating agents, controllers and harnesses sharing journals must adopt a
+compatible qualified CLI before newer writes. Older-client coexistence and
+downgrade recovery are not promised. Preserve journals and durable receipts;
+use a compatible reader and fresh ownership proof for authorized recovery.
+The local installation proves no receiving-host or harness adoption.
 
-A diagnostic follow-up on 2026-10-31 supplies a distinct newer-writer refusal
-through global enumeration and capacity diagnostics in
-[draft PR #172](https://github.com/rschlaefli/devrouter/pull/172).
-The existing refusal, journal bytes and full-history requirement remain intact;
-operators are directed to a compatible CLI instead of history restoration.
-The reproduced regression and native tests pass. That PR owns final review and
-exact-head CI. It changes no mixed-version availability promise and does not
-satisfy the maintenance or consumer-probe prerequisites.
+Existing replacement, maintenance, pilot and original-consumer owners received
+the verified release notice after installation. They retain their own startup,
+acceptance, data and terminal-stop boundaries. Their useful-work acceptance and
+any separate consumer failures remain open until producing evidence arrives.
+No consumer runtime was started by this release batch.
 
-On 2026-10-31 the user approved coordinated CLI adoption before retained
-maintenance: participating agents and harnesses sharing journals use the same
-qualified release. Older-client coexistence is not promised. Exact package,
-participating client/harness adoption and downgrade qualification remain release
-gates; this policy decision authorizes no installation or activation.
+Retained Compose isolation and restoration remain separate from primary app
+replacement. The [maintenance feasibility record](https://github.com/rschlaefli/devrouter/blob/fa7e1147/docs/project/2026-10-30-retained-maintenance-transition-plan.md)
+reached its reviewed blocker terminal. The detailed requirements handoff is
+received, but a concrete frozen-source, restricted-input and fresh-evidence
+transport for the complete consumer probe is still missing. Public maintenance
+implementation and runtime/data effects remain unapproved. A proved terminal
+stop remains an accepted failure branch.
 
-The detailed consumer requirements handoff has now arrived after direct
-sending-side approval, closing the messaging block. Its complete private
-requirements remain with the existing owners. The available consumer context
-still cannot supply all semantic proof; a frozen-source, restricted-input and
-fresh evidence transport must be concretely defined before maintenance
-implementation. No complete unchanged-context verifier is established.
-
-A separately approved source-only release-preparation batch now delivers
-[draft PR #173](https://github.com/rschlaefli/devrouter/pull/173) for 0.6.4,
-containing merged app replacement and reviewed diagnostics. The actual packed
-0.6.4 writer and checksum-matched released 0.6.3 reader pass bounded refusal
-and receipt-retention qualification with provider effects denied. Native and
-package checks pass; that draft owns independent final review and exact-head CI.
-Ready/merge, publication, installation and the receiving preservation test remain
-separately gated. This package does not implement retained maintenance.
-
-This front section replaces the older current-status table and priority order.
+The human's approved conditional delivery sequence is complete: ready and merge
+#173, verify merged-main CI, publish through the existing pipeline, verify the
+registry package, install exact 0.6.4 locally and notify existing consumer owners.
 Historical execution records below remain evidence, not current completion
 claims. Existing W0–W9, S1–S8, M0–M3 and Q01–Q36 obligations remain open wherever
-acceptance is missing. The user requested this investigation and roadmap refocus
-on 2026-10-30; this revision changes planning only. Existing owners retain source,
-runtime and delivery authority. No new implementation, installation, release,
-consumer mutation or provider-configuration action is performed by this revision.
+acceptance is missing. This status reconciliation records completed delivery;
+it grants no new maintenance, consumer, provider or cleanup authority.
 
-### Review disposition and next authorized work — 2026-10-30
+### Review disposition and next authorized work — 2026-10-31
 
 The requested Opus 5.5 progress/roadmap consultation completed with concerns.
 Main-session source verification corrected its possible missing-documentation
@@ -101,8 +77,8 @@ The remaining recommendations are recorded here without creating new authority.
 | Work | Next acceptance and owner | Authority and boundary |
 | --- | --- | --- |
 | Retained maintenance contract | Source-only probes establish a candidate selective path, hook replay and released-reader limitations. Apply approved coordinated CLI adoption and reconcile the received requirements into a concrete source/input/evidence transport and full-context probe; retain proved terminal stop as an accepted failure branch. Devrouter owner; consumer owner retains its probe. | Feasibility batch reached its reviewed blocker terminal. Public implementation is not authorized. A profile alone does not establish the promised isolation. |
-| Replacement release preparation | [Draft #173](https://github.com/rschlaefli/devrouter/pull/173) prepares 0.6.4. Actual-version older-reader refusal, receipt retention and exact package bytes pass; finish its review and exact-head CI. Devrouter release owner. | Source-only preparation/draft delivery is approved. Ready/merge, publication, installation and consumer runtime remain separate. Reuse unchanged component and synthetic proof. |
-| Consumer acceptance | Receiving replacement owner proves supported installed adoption and its own bounded useful-work journey; pilot owner proves its corrected PWA acceptance. | Their approvals, CI exceptions and runtime/data effects stay with their owners. Neither lane is closed by the source merge. |
+| Replacement release delivery | [0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4) is merged, published and verified locally; registry integrity and all 106 package members pass. Consumer owners received the notice. Devrouter release owner. | Approved delivery terminal reached. Receiving-host/harness adoption and consumer runtime acceptance remain with their owners. |
+| Consumer acceptance | Receiving replacement owner proves supported installed adoption and its own bounded useful-work journey; pilot owner proves its corrected PWA acceptance. | Their approvals, CI exceptions and runtime/data effects stay with their owners. Neither lane is closed by the release or local installation. |
 | Repeat replacement and shared tooling | Keep a proposed newer-stopped-generation contract for repeat replacement, preserving no-replay and unknown outcomes. Shared routing, result classification, task binding and fixture validation keep their recorded owners. | Proposed follow-ups; no receipt deletion, new supervisor, global routing rewrite or consumer takeover. |
 
 The later focused feasibility review found the candidate contract not ready for

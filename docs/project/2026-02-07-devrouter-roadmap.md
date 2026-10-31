@@ -12,14 +12,19 @@ host-suspend and consumer evidence. The earlier
 [evidence and stop-recovery package](./2026-10-26-reliability-evidence-repair.md)
 is delivered source with explicitly open live acceptance, not the next source fix.
 
-Primary-only replacement is merged through
-[PR #171](https://github.com/rschlaefli/devrouter/pull/171), with passing
-merged-main CI; it remains outside published 0.6.3. Retained-maintenance source-only
-feasibility reached its reviewed blocker terminal. The next decision is its
-mixed-version and consumer semantic-probe contract;
-public implementation remains unapproved. Release, installation and each
-consumer's runtime acceptance retain separate authority. Repeat replacement
-and the shared-tooling improvements are proposed follow-ups in the acceptance roadmap, not implicit execution scope.
+Primary-only app replacement and newer-writer diagnostics are released in
+[0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4) through
+[PR #173](https://github.com/rschlaefli/devrouter/pull/173). Merged-main and release
+CI pass; registry integrity, all 106 shipped members and the approved local
+installation match the tested package. Existing consumer owners received the
+release notice and retain receiving-host adoption and runtime acceptance.
+
+Retained-maintenance source-only feasibility reached its reviewed blocker
+terminal. The next unresolved contract is its transport for frozen source, restricted inputs and fresh
+evidence and complete consumer probe; public implementation remains
+unapproved. Repeat replacement and shared-tooling improvements remain proposed
+follow-ups in the acceptance roadmap. Release delivery does not close the
+remaining integrated canary, host-suspend or consumer evidence.
 
 W2 — [Workspace resource accounting](./2026-08-16-workspace-resource-accounting-roadmap.md)
 was delivered in [PR #30](https://github.com/rschlaefli/devrouter/pull/30),
