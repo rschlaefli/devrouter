@@ -12,6 +12,13 @@ host-suspend and consumer evidence. The earlier
 [evidence and stop-recovery package](./2026-10-26-reliability-evidence-repair.md)
 is delivered source with explicitly open live acceptance, not the next source fix.
 
+The next milestone is an owner-verified ordinary retained-environment journey.
+Reuse the installed 0.6.4 synthetic state-machine coverage. The bounded source
+comparison found no new ordinary-start defect. Close actual useful-work
+acceptance through the existing consumer owner and
+remaining runtime authority. A new fixture needs a specific uncovered oracle.
+Retained maintenance/reset is a separate lane and does not gate ordinary startup.
+
 Primary-only app replacement and newer-writer diagnostics are released in
 [0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4) through
 [PR #173](https://github.com/rschlaefli/devrouter/pull/173). Merged-main and release

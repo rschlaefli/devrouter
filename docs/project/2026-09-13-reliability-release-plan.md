@@ -8,6 +8,14 @@ it cannot, it should explain the specific obstruction and return the smallest
 validated next action. Agents should not need to infer internal lifecycle state
 or assemble a sequence of repair commands from chat history.
 
+**Next acceptance milestone:** close one affected consumer's ordinary retained
+journey on the qualified installed release, through its existing owner. The
+source comparison below is complete without a new ordinary-start defect; reuse
+the installed synthetic coverage and preserving source evidence. The remaining
+gap is an owner-verified useful-work/recovery receipt,
+not another release or the reset-specific maintenance transport. No new fixture
+is a prerequisite unless a specific uncovered behavior is identified.
+
 **Delivery status:** [0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4)
 is published from merged revision `60cd90ee547a805e920528db406fc7cf6f8ac3d8`
 through [PR #173](https://github.com/rschlaefli/devrouter/pull/173).
@@ -86,10 +94,10 @@ The remaining recommendations are recorded here without creating new authority.
 
 | Work | Next acceptance and owner | Authority and boundary |
 | --- | --- | --- |
-| Retained maintenance contract | Native transport proof is reviewed: 61 fake-child cases and 56 existing controls pass. Next settle trusted bootstrap and authoritative dependency/claim adapters with the consumer-owned complete read-only probe and runnable context. Devrouter and consumer owners retain their respective source. | Approved transport experiment reached its terminal. Public implementation, live proof and consumer data effects remain separate. Matching verdict IDs alone are correlation. |
-| Replacement release delivery | [0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4) is merged, published and verified locally; registry integrity and all 106 package members pass. Consumer owners received the notice. Devrouter release owner. | Approved delivery terminal reached. Receiving-host/harness adoption and consumer runtime acceptance remain with their owners. |
-| Consumer acceptance | Receiving replacement owner proves supported installed adoption and its own bounded useful-work journey; pilot owner proves its corrected PWA acceptance. | Their approvals, CI exceptions and runtime/data effects stay with their owners. Neither lane is closed by the release or local installation. |
-| Repeat replacement and shared tooling | Keep a proposed newer-stopped-generation contract for repeat replacement, preserving no-replay and unknown outcomes. Shared routing, result classification, task binding and fixture validation keep their recorded owners. | Proposed follow-ups; no receipt deletion, new supervisor, global routing rewrite or consumer takeover. |
+| Ordinary consumer acceptance | Source comparison is complete without a new ordinary-start defect. Reuse installed 0.6.4 coverage and obtain one owner-held ordinary useful-work/recovery receipt after that owner's source/CI and runtime conditions hold. | This is the next useful milestone. Preserve partial consumer success. New runtime allowances, other-host adoption and consumer data effects require that owner's actual authority. |
+| Replacement release delivery | [0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4) is merged, published and verified locally; registry integrity and all 106 package members pass. Consumer owners received the notice. | Approved delivery terminal reached. Do not repeat acquisition, packaging or installation without a changed acceptance boundary. Receiving-host adoption remains separate. |
+| Retained maintenance contract | Native transport proof is reviewed: 61 fake-child cases and 56 existing controls pass. [Current lane boundary](https://github.com/rschlaefli/devrouter/blob/741ef0f9/docs/project/2026-10-30-retained-maintenance-transition-plan.md#current-lane-boundary-after-realignment--2026-10-31) preserves the unqualified trusted bootstrap, dependency/claim adapters and complete runnable consumer probe. | Separate reset/maintenance lane, not a prerequisite for ordinary startup. Its finite transport experiment is complete; public implementation and live/data effects remain separate. |
+| Repeat replacement and shared tooling | Preserve proposed repeat-replacement, routing, result-classification, task-binding and fixture-validation follow-ups with their existing owners. | Follow-ups do not block independent ordinary-startup work. No receipt deletion, new supervisor, global rewrite or consumer takeover. |
 
 The later focused feasibility review found the candidate contract not ready for
 implementation. A checksum-matched released 0.6.3 admission probe refuses a
@@ -103,7 +111,7 @@ The existing safe dependency probe is also absent in consumer source. Its owner
 confirms that a proved canonical stop with a stopped/missing probe context is an
 accepted terminal refusal. Probe-service restart is optional additional capability
 and is not a prerequisite to this source-only result. The
-[maintenance result](https://github.com/rschlaefli/devrouter/blob/rs/retained-maintenance-plan/docs/project/2026-10-30-retained-maintenance-transition-plan.md#focused-review-outcome-and-blocking-constraints)
+[maintenance result](https://github.com/rschlaefli/devrouter/blob/c959de7a40c298e94f41198b821abe2634e75e17/docs/project/2026-10-30-retained-maintenance-transition-plan.md#focused-review-outcome-and-blocking-constraints)
 records the exact observations and proposed next contract decisions. No public
 maintenance implementation or live qualification follows from this result.
 
@@ -178,20 +186,34 @@ change before dependent effects. No new release date or version promises follow.
 
 | Priority / existing work | Outcome and next scope | Required evidence / owner |
 | --- | --- | --- |
-| 1 — P0, W1/W3a/W4 | One command chooses a preserving path for fresh, warm, stopped, interrupted and eligible degraded environments. Resolve the pilot's repair-selection and journal-classification gap first. Validate eligibility before effects where possible; retain refusal when proof is missing. | Reproduce the stopped/non-degraded case through the installed CLI. Ordinary ensure either completes preserving recovery or returns a specific valid next action. Known validation failure must not become unexplained interruption. Round-trip state, concurrency, partial population and stale-generation negatives remain covered. Devrouter lifecycle owner; pilot owner supplies consumer acceptance. |
-| 2 — P0, W7/W8 | Make provider readiness predict the requested operation. Resolve the held Devsy acquisition failure and qualify the intended consumer combination before expanding support. Prefer existing verified-cache/setup paths over alternate ad-hoc injection. | Exact released/packed CLI, host provider, injected agent, architecture, hook context and retained mounts. Exercise missing/stale/corrupt agent and acquisition failure before and during replacement. Safe verified acquisition can recover within explicit policy; otherwise return the prerequisite before expensive target mutation where feasible. Devrouter/provider owner; Control recovery owner retains adoption. |
+| 1 — P0, W1/W3a/W4 | Close the ordinary retained-environment journey using the shipped repair-selection/refusal correction. Source-only comparison checks current preparation/hooks and the provider-start versus retained-repair path before any owner-authorized live attempt. | Installed 0.6.4 already covers ready/stopped non-degraded repair refusal, subsequent ordinary ensure, drained interruption and automatic degraded repair with synthetic providers. Reuse those receipts. Real preserving hooks, data semantics and useful-work acceptance remain owner-qualified. A demonstrated new gap gets a focused reproducer and correction. |
+| 2 — P0, W7/W8 | Preserve completed verified-cache acquisition and Devsy 1.24 replacement qualification for the recorded combination. Reconcile each receiving host's CLI/provider/agent/architecture before extending that claim. | Existing qualification is complete within its exact package/provider/architecture/hook boundary. Other combinations and receiving adoption remain unqualified. Reopen acquisition only for a new mismatch or failure; no shared setup change or alternate injection is inferred. |
 | 3 — P0, W1/W9 | Give agents one consistent recovery result across ensure, status, doctor and exec. Recommendations are computed from the same eligibility checks as execution. | Structured outcome, stable reason, operation identity, phase, bounded attempts, safe retry/wait semantics, and a next action with preconditions/effects/authority. Test that advice is executable in the state that produced it. Preserve unknown completion; never infer a general provider outage from an unrelated review/transport warning. Reuse existing diagnostics and protocol; exact schema is an implementation decision. |
 | 4 — P1, W2/W3b/W6a/W9 | Continue work through common failures using the existing controller and harness. Start with owned process/dependency loss, contention and provider interruption, then capacity parking/resume and sleep. | Real enforcing harness waits and resumes once without a model repair loop. Retained synthetic data and a protected neighbour survive. Recovery budgets persist across retries/controller restarts; exhausted budgets produce an actionable block. Controller/harness owner; existing stop and uncertain-dispatch invariants remain mandatory. |
 | 5 — release acceptance, W4/W5/W7/W8 | Close the loop in affected consumers and prevent recurrence. Couple every repair to its ordinary installed journey instead of postponing adoption behind unrelated feature work. | Exact-package cold start, warm attach, real application work, injected relevant failure, preserving recovery, stop/resume and neighbour functionality. Cover fresh and populated storage separately. An owner-verified affected consumer receipt closes that issue; a second distinct consumer/harness is required for broader portability claims. Existing consumer owners run their authorized acceptance. |
 
 ### First useful result and scorecard
 
-The first useful result is a reproduced pilot-shaped retained-state scenario
-where the agent runs ordinary ensure and either gets a working environment or
-precise, prevalidated guidance. It must not require an agent to inspect journal
-internals or guess between repair and ordinary startup. Provider acquisition
-investigation can proceed independently; publishing a compatibility patch waits
-for its own failed qualification boundary to pass.
+The installed synthetic selection/classification milestone is complete for the
+held 0.6.4 executable. `scripts/qualify-lifecycle.ts` exercises ready/stopped
+non-degraded repair refusal before preparation, subsequent ordinary ensure,
+drained interrupted startup and degraded repair without provider bootstrap.
+The 33-case receipt covers the actual held CLI/worker bytes; its pre-commit
+source label does not denote a different executable. CLI SHA256:
+`67bbb71eebf96329ce876042a1b6258ec4f0e0dd8e590951929a8d783fd3a791`;
+worker SHA256:
+`1d7659ca73af71f7cb303d38d05600b97a8f0b44d30c9ccf369dd07d6167fc7d`.
+All 106 published/installed file members match that held package. This evidence
+is explicitly `installed-cli-synthetic-providers`, not live-provider acceptance.
+
+The next useful result is an affected consumer's ordinary useful-work journey.
+Preserve earlier owner-reported startup and sampled application success as
+partial evidence; full acceptance remains open. Source-only comparison of
+current hooks, preparation and the native ensure branch comes before any new
+live attempt. Reuse prior preserving-hook review when the bytes and contract
+match. A new fixture is justified only by a concrete uncovered oracle, with its
+own exact effects and authority. Provider or consumer application blockers do
+not invalidate independent completed source evidence.
 
 Record measurements in existing qualification receipts, with exact package,
 provider, profile, outcome and producing run. Establish a baseline before
@@ -268,79 +290,109 @@ main Devrouter owner retains the execution record and next implementation batch.
 The task-binding helper still rejected the verified nested worktree plan; that
 shared-tooling limitation was observed without loosening its validator.
 
-### Main-session goal and independent continuation — 2026-10-30
+### Main-session goal and independent continuation — 2026-10-31
 
 **Goal:** make ordinary `devrouter ensure <checkout> --profile <profile> --json`
-sufficient for the affected retained-environment journey: reach verified
-application readiness through bounded, preserving recovery, or return a precise,
-validated next action without journal inspection or repair-flag guessing.
-Qualify the intended provider combination, deliver the verified correction
-through authorized release and installation steps, and close the incident with
-owner-verified consumer acceptance. A truthful refusal is a valid safety outcome;
-it does not by itself close a consumer incident requiring a working environment.
+sufficient for the affected retained-environment journey: verified application
+readiness through bounded preserving recovery, or a precise validated next action
+without journal inspection or repair-flag guessing. A safe refusal preserves
+control; it does not close an incident that requires a usable environment.
 
-**Resume point and authority:** reuse `trees/rs/lifecycle-delivery`, now on
-`rs/retained-consumer-acceptance` from released main `525b4e23`, and the two
-linked execution plans. PR #169 is merged; retain its source evidence.
-Refresh remote/head/worktree evidence before mutation and preserve concurrent
-owner changes. This side conversation authorizes this roadmap update, not new
-runtime, merge, release, installation or messaging effects. Recover the actual
-main-session user instructions behind each existing delivery approval once,
-record the references in the active execution plan, and continue their scope
-without repeated generic approval requests. A plan or handoff is not authority.
-Current native-goal readback is blocked on the broader consumer outcome. Its
-objective remains the ordinary retained-environment journey above; no replacement
-goal was created. The separately approved source-only feasibility batch can
-continue without claiming the broader goal active or complete.
+**Current baseline and owner:** this main session owns
+`trees/rs/lifecycle-delivery` on `rs/retained-consumer-acceptance`. Released source
+is 0.6.4 at `60cd90ee547a805e920528db406fc7cf6f8ac3d8`. The finite source,
+provider/cache qualification, publication, local installation and notice sequence
+is complete. Preserve its package, native, synthetic and review evidence instead
+of restarting those stages. The 2026-10-31 realignment found no native goal.
+On 2026-11-01 the human adopted this continuation with an explicit goal request;
+the native goal is active. Its terminal still requires consumer acceptance.
 
-1. **Select and reproduce the consumer path.** Inventory already-passing source
-   and installed evidence before adding work. Use a pilot-shaped retained
-   synthetic fixture to exercise ordinary ensure, a useful application operation,
-   the relevant fault, preserving recovery, and stop/resume. Establish hook
-   preservation, exact destination/provider identifiers and protected neighbour
-   before effects. Reuse valid receipts; rerun only changed or unqualified seams.
-   Complete this step when the ordinary path works or its specific product gap
-   has a reproducer and a bounded correction in the existing lifecycle machinery.
-2. **Resolve provider acquisition.** Capture exact CLI/provider/agent versions,
-   architecture, verified cache provenance and sanitized per-source acquisition
-   errors. The existing aggregate `agent binary not found` log does not identify
-   the failed source. Use a bounded isolated qualification under existing runtime
-   authority and the supported verified-cache/setup contract. Any required shared
-   setup change is a separate decision with an exact target and effect. Completion
-   requires successful intended replacement and preservation checks, or a precise
-   supported prerequisite/refusal with compatibility still explicitly unqualified.
-3. **Choose delivery from evidence.** If the provider gate passes, finish the
-   compatible candidate's applicable review, package checks and exact-head CI,
-   then perform only the merge/release/installation sequence covered by recovered
-   authority. If acquisition remains blocked, assess whether the independent
-   refusal correction can ship while retaining the previously qualified provider
-   boundary. Prepare and verify that bounded source alternative without claiming
-   Devsy 1.24.0 support; a changed release scope or delivery authority must be
-   resolved before publication. A provider blocker must not prevent independent
-   diagnostics, regression coverage or a reviewable source correction.
-4. **Obtain installed consumer acceptance.** Existing consumer owners retain
-   their runtime lanes. Under recovered coordination authority, supply the exact
-   artifact, supported provider combination, preserving prerequisites and a
-   concise acceptance sequence. Verify publication and the selected executable
-   separately. Require an owner receipt for ordinary startup, actual application
-   work, relevant recovery, retained data, stop/resume and neighbour functionality.
-   Record unknown or pending outcomes explicitly; an unavailable owner blocks
-   consumer closure, not independent source/package work.
+**Source and evidence comparison — complete:** the bounded comparison below maps
+installed qualification and preserving-hook evidence to the selected consumer's
+current committed source and support combination. Declared host preparation,
+creation/start hooks and retained-repair versus provider-start selection were
+inspected. Provider marker source semantics were checked; actual future launch
+selection and marker population remain owner preflight. An external observation
+is not an atomic ownership guarantee; execution retains its under-lock proof.
+Reuse matching review and hook evidence; an unknown or changed behavior alone
+does not establish a reproduced defect.
 
-**Terminal evidence:** reviewed source revision and required CI; exact packed,
-published and selected-installed artifact identities where delivery is authorized;
-provider qualification for the claimed combination; and an affected consumer's
-successful ordinary journey with zero unauthorized data changes, initialization
-replay, duplicate uncertain dispatch or neighbour disruption. Broader portability
-claims require a second distinct consumer or enforcing harness. If a dependent
-gate cannot pass, preserve the completed evidence, exact blocker, owner and
-supported next action; keep the unmet acceptance open rather than declaring the
-goal complete. Continue all independent authorized steps before yielding.
+**Next acceptance milestone — one ordinary consumer journey:** the existing
+consumer owner supplies exact CLI/provider/profile/source identities and an
+owner-verified receipt for ordinary ensure, a useful application operation,
+retained content, the relevant supported recovery/stop-resume transition,
+protected neighbour behavior and canonical final stop. Capture intervention,
+outcome and latency evidence in the existing private receipts, without claiming
+fleet reliability from test counts. The pilot retains its consumer source fix,
+source/CI conditions and consumed startup limit; another runtime attempt needs
+its own bounded authority. The Control recovery owner retains receiving-host
+compatibility, adoption and startup authority. Neither is supplied by local
+installation here. Do not take over either lane or reopen completed delivery.
 
-Keep sleep/capacity qualification, preview, cleanup and shared orchestration
-follow-ups in their existing lanes unless new evidence makes one necessary for
-this consumer path. Update this current-status section and the existing execution
-plan when evidence changes; avoid another status index or duplicate plan root.
+**Minimum integration evidence before a later live attempt:** identify the
+actual public caller, predicted native branch, preparation/hooks and preserving
+verdict, durable claim/journal boundary, typed returned outcome, and valid next
+transition in the resulting state. Existing installed synthetic cases already
+cover their named oracles; add or rerun only a changed or uncovered one. Unknown
+completion never permits replay; retain successful effects, receipts and exact
+stop/recovery evidence. Missing hook or application proof is a named prerequisite,
+not permission to initialize, recreate or invent a verifier context.
+
+**Authority and continuation:** recover actual user approvals for each dependent
+source, host and runtime action. Do not request generic reapproval of completed
+batches or approved routine fixes. Realignment authorizes these document
+corrections only. The human's 2026-11-01 request now starts this continuation
+within its existing authority. Continue independent already-authorized work
+across internal review/check and reconciliation steps. Any genuinely new live
+action needs one concrete conditional approval naming its exact target,
+remaining allowance, data/cost/time
+limits, supported recovery and terminal condition. Reuse existing owner limits;
+create no new budget, reset no consumed attempt and promise no unknown effects.
+
+**Separate lanes:** retained maintenance/reset remains with its current provider
+and consumer owners. Its 61/56 native transport result is complete, while trusted
+execution/context, full semantic predicates and durable restart proof remain
+unqualified. These do not block ordinary startup acceptance. Capacity/parking,
+sleep, second-consumer/harness portability, preview and shared tooling keep their
+existing obligations and owners. They must not become unrelated global gates.
+
+**Terminal evidence:** preserve reviewed source and required CI, exact package/
+publication/selected-install identities, qualified support-combination evidence,
+and an affected consumer's successful ordinary journey without unauthorized data
+changes, initialization replay, duplicate uncertain dispatch or neighbour
+interference. Source counts, publication, a mock verdict or truthful refusal alone
+do not complete the reliability goal. Broader portability still requires a second
+distinct consumer or enforcing harness. If a dependent branch is blocked, retain
+its exact reason, owner and supported next action while independent approved
+work continues. This realignment neither lowers acceptance nor declares the
+broader goal complete.
+
+### Source comparison and continuation — 2026-11-01
+
+The bounded source comparison found no new ordinary-start defect. Preparation
+still precedes selection under the lifecycle lock. An exact retained degraded
+generation selects repair; a non-degraded stopped generation takes provider
+startup. Replacement remains an explicit branch. The reviewed preserving
+post-create composition and application adapter remain the consumer boundary;
+provider hook markers alone do not prove preservation. Missing markers can
+cause hooks to run again, so retain the existing initialization separation.
+
+Reuse the installed synthetic qualification and the earlier partial consumer
+startup/useful-work and canonical-stop evidence. The remaining receipt must
+qualify the current selected command, consumer source, actual hooks and supported
+recovery transition. An older supervisor pinned to another package cannot be
+replayed after adoption, and an exhausted startup allowance remains exhausted.
+Existing consumer owners retain source corrections and receiving-host adoption;
+this comparison starts no consumer runtime and establishes no new recovery.
+The next dependent action is the owner's bounded acceptance after its source,
+compatibility and actual runtime-authority conditions hold. Independent roadmap
+delivery continues while those conditions remain open.
+
+The 2026-10-30 brief is superseded by this section. Historical execution records
+and approval-bound plan inputs below remain preserved. Detailed fresh
+opposite-client advice, its focused evidence correction and main-session
+accepted/rejected/deferred dispositions are retained in the existing private
+review area; advice changes no authority.
 
 ## Approval summary
 
