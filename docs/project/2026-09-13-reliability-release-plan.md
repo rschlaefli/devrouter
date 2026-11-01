@@ -1,6 +1,6 @@
 # Reliable managed development environments
 
-## Current direction and acceptance — 2026-10-31
+## Current direction and acceptance — 2026-11-01
 
 **Outcome: an agent asks for an environment once, then works.** Devrouter should
 reach verified application readiness through bounded, preserving recovery. When
@@ -8,13 +8,25 @@ it cannot, it should explain the specific obstruction and return the smallest
 validated next action. Agents should not need to infer internal lifecycle state
 or assemble a sequence of repair commands from chat history.
 
-**Next acceptance milestone:** close one affected consumer's ordinary retained
-journey on the qualified installed release, through its existing owner. The
-control-flow comparison below is complete; reuse the installed synthetic
-coverage and preserving source evidence. Retained storage bindings still need
-qualification. The remaining gap is an owner-verified useful-work/recovery receipt,
-not another release or the reset-specific maintenance transport. No new fixture
-is a prerequisite unless a specific uncovered behavior is identified.
+**Ordinary consumer milestone: complete.** The existing owner completed one
+approved retained reconstruction on qualified 0.6.4, Devsy/agent 1.19.0 and the
+reviewed preserving consumer source. Exact retained storage bindings and selected
+synthetic records survived. Native application tests and focused browser work
+passed. A live neighbour retained its identity and functional results through
+consumer shutdown, then stopped. Both canonical terminal checks passed. The
+owner published inspected evidence in [consumer draft #6652](https://github.com/uzh-bf/klicker-uzh/pull/6652)
+at `f0dfec3b2cad92091d3c9de17e66a1d2ddd1c338`; private storage configuration remains
+local and unstaged. The bounded goal is complete and its monitor is removed.
+
+This qualifies the recorded reconstruction and useful-work journey. Current-target
+conflicts, current application CI/full production build and broader UI/device
+acceptance remain with that consumer owner. Other consumers, host combinations,
+warm recovery and broader portability still require their own evidence.
+
+**Next source outcome:** qualify consistent recovery advice across ensure,
+status, doctor and exec against their actual eligibility checks. Reuse passing
+qualification and correct only demonstrated mismatches. Independent consumer
+verification stays with its owner; retained maintenance/reset remains separate.
 
 **Delivery status:** [0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4)
 is published from merged revision `60cd90ee547a805e920528db406fc7cf6f8ac3d8`
@@ -54,9 +66,10 @@ The local installation proves no receiving-host or harness adoption.
 
 Existing replacement, maintenance, pilot and original-consumer owners received
 the verified release notice after installation. They retain their own startup,
-acceptance, data and terminal-stop boundaries. Their useful-work acceptance and
-any separate consumer failures remain open until producing evidence arrives.
-No consumer runtime was started by this release batch.
+acceptance, data and terminal-stop boundaries. The later ordinary consumer batch
+above supplies one useful-work receipt; separate consumer failures remain open
+until their own producing evidence arrives. No consumer runtime was started by
+the release batch.
 
 Retained Compose isolation and restoration remain separate from primary app
 replacement. The [reviewed maintenance result](https://github.com/rschlaefli/devrouter/blob/c959de7a40c298e94f41198b821abe2634e75e17/docs/project/2026-10-30-retained-maintenance-transition-plan.md#reviewed-transport-result--2026-10-31)
@@ -84,7 +97,7 @@ claims. Existing W0–W9, S1–S8, M0–M3 and Q01–Q36 obligations remain open
 acceptance is missing. This status reconciliation records completed delivery;
 it grants no new maintenance, consumer, provider or cleanup authority.
 
-### Review disposition and next authorized work — 2026-10-31
+### Review disposition and next work — 2026-11-01
 
 The requested Opus 5.5 progress/roadmap consultation completed with concerns.
 Main-session source verification corrected its possible missing-documentation
@@ -94,7 +107,7 @@ The remaining recommendations are recorded here without creating new authority.
 
 | Work | Next acceptance and owner | Authority and boundary |
 | --- | --- | --- |
-| Ordinary consumer acceptance | Control-flow comparison is complete; retained storage bindings and contents remain unqualified. Reuse installed 0.6.4 coverage and obtain one owner-held ordinary useful-work/recovery receipt after that owner's source/CI and runtime conditions hold. | This is the next useful milestone. Preserve partial consumer success. New runtime allowances, other-host adoption and consumer data effects require that owner's actual authority. |
+| Ordinary consumer acceptance | The owner-held 0.6.4 reconstruction, selected retained-data/native/browser checks, functional neighbour proof, both stops and draft evidence are complete for the recorded combination. | Approved bounded terminal reached. Broader consumer readiness, other hosts and new runtime/data effects retain their existing owners and authority. |
 | Replacement release delivery | [0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4) is merged, published and verified locally; registry integrity and all 106 package members pass. Consumer owners received the notice. | Approved delivery terminal reached. Do not repeat acquisition, packaging or installation without a changed acceptance boundary. Receiving-host adoption remains separate. |
 | Retained maintenance contract | Native transport proof is reviewed: 61 fake-child cases and 56 existing controls pass. [Current lane boundary](https://github.com/rschlaefli/devrouter/blob/741ef0f9/docs/project/2026-10-30-retained-maintenance-transition-plan.md#current-lane-boundary-after-realignment--2026-10-31) preserves the unqualified trusted bootstrap, dependency/claim adapters and complete runnable consumer probe. | Separate reset/maintenance lane, not a prerequisite for ordinary startup. Its finite transport experiment is complete; public implementation and live/data effects remain separate. |
 | Repeat replacement and shared tooling | Preserve proposed repeat-replacement, routing, result-classification, task-binding and fixture-validation follow-ups with their existing owners. | Follow-ups do not block independent ordinary-startup work. No receipt deletion, new supervisor, global rewrite or consumer takeover. |
@@ -186,7 +199,7 @@ change before dependent effects. No new release date or version promises follow.
 
 | Priority / existing work | Outcome and next scope | Required evidence / owner |
 | --- | --- | --- |
-| 1 — P0, W1/W3a/W4 | Close the ordinary retained-environment journey using the shipped repair-selection/refusal correction. Source-only comparison checks current preparation/hooks and the provider-start versus retained-repair path before any owner-authorized live attempt. | Installed 0.6.4 already covers ready/stopped non-degraded repair refusal, subsequent ordinary ensure, drained interruption and automatic degraded repair with synthetic providers. Reuse those receipts. Real preserving hooks, data semantics and useful-work acceptance remain owner-qualified. A demonstrated new gap gets a focused reproducer and correction. |
+| 1 — P0, W1/W3a/W4 | The first owner-held ordinary retained reconstruction is complete for the recorded 0.6.4 consumer combination. Reuse its source, storage, application, neighbour and stopped-terminal evidence. | Broader portability and other recovery transitions remain open. Preserve the consumed runtime limits; a demonstrated new gap gets a focused reproducer and correction under its owner's authority. |
 | 2 — P0, W7/W8 | Preserve completed verified-cache acquisition and Devsy 1.24 replacement qualification for the recorded combination. Reconcile each receiving host's CLI/provider/agent/architecture before extending that claim. | Existing qualification is complete within its exact package/provider/architecture/hook boundary. Other combinations and receiving adoption remain unqualified. Reopen acquisition only for a new mismatch or failure; no shared setup change or alternate injection is inferred. |
 | 3 — P0, W1/W9 | Give agents one consistent recovery result across ensure, status, doctor and exec. Recommendations are computed from the same eligibility checks as execution. | Structured outcome, stable reason, operation identity, phase, bounded attempts, safe retry/wait semantics, and a next action with preconditions/effects/authority. Test that advice is executable in the state that produced it. Preserve unknown completion; never infer a general provider outage from an unrelated review/transport warning. Reuse existing diagnostics and protocol; exact schema is an implementation decision. |
 | 4 — P1, W2/W3b/W6a/W9 | Continue work through common failures using the existing controller and harness. Start with owned process/dependency loss, contention and provider interruption, then capacity parking/resume and sleep. | Real enforcing harness waits and resumes once without a model repair loop. Retained synthetic data and a protected neighbour survive. Recovery budgets persist across retries/controller restarts; exhausted budgets produce an actionable block. Controller/harness owner; existing stop and uncertain-dispatch invariants remain mandatory. |

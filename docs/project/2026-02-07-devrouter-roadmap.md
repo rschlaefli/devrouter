@@ -12,12 +12,17 @@ host-suspend and consumer evidence. The earlier
 [evidence and stop-recovery package](./2026-10-26-reliability-evidence-repair.md)
 is delivered source with explicitly open live acceptance, not the next source fix.
 
-The next milestone is an owner-verified ordinary retained-environment journey.
-Reuse the installed 0.6.4 synthetic state-machine coverage. Control-flow
-comparison is complete; retained storage bindings and contents remain open.
-Close actual useful-work acceptance through the existing consumer owner and
-remaining runtime authority. A new fixture needs a specific uncovered oracle.
-Retained maintenance/reset is a separate lane and does not gate ordinary startup.
+The first owner-verified ordinary retained reconstruction is complete on 0.6.4.
+The recorded consumer combination passed retained-storage and selected-data
+checks, native/browser useful work, functional neighbour preservation and both
+terminal stops. [Consumer draft #6652](https://github.com/uzh-bf/klicker-uzh/pull/6652)
+contains inspected evidence. Broader consumer readiness and portability remain
+open; the acceptance roadmap owns the exact limits.
+
+Next, qualify recovery advice across ensure, status, doctor and exec against
+their actual eligibility checks, correcting demonstrated mismatches. Reuse
+passing evidence and preserve independent consumer owners. Retained maintenance/
+reset remains a separate lane with its own unqualified contract and authority.
 
 Primary-only app replacement and newer-writer diagnostics are released in
 [0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4) through
