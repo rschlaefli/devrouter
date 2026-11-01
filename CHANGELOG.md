@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-11-01
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.6.5.md
+
+### Fixed
+
+- Status and doctor recommend canonical `ensure` for managed repositories,
+  including profiles without routed apps. Checkout paths are shell-quoted;
+  legacy app startup guidance and unwound-mount diagnostics are preserved.
+
+### Compatibility
+
+- Coordinate participating CLI, harness and controller adoption before writing
+  shared lifecycle state. Older clients refuse newer-writer journals. Preserve
+  journals and durable attempts; installation alone does not authorize startup.
+
 ## [0.6.4] - 2026-10-31
 
 ### Agent Adaptation Prompt
