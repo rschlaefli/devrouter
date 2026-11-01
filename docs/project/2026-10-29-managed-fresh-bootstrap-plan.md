@@ -112,6 +112,26 @@ six finding dispositions remain the detailed contract and reusable plan critique
 
 ## Progress
 
+Current state after [PR #171](https://github.com/rschlaefli/devrouter/pull/171):
+primary-only replacement is merged at
+`d2fba69eaad9bc6464d412776e9241b66ea33f32`, with the same complete Git tree as
+reviewed `f84a174f9f5bc875de0c63c2196713e10072ecd1`.
+[Merged-main CI](https://github.com/rschlaefli/devrouter/actions/runs/41121149134)
+passes. Independent review, the corrected candidate's 3,516 native passes and
+13 platform skips, package-byte proof and the one bounded packed-CLI synthetic
+replacement all completed. The fixture ended canonically stopped with retained
+storage, zero exact routes and no journal worker. This qualifies its synthetic
+population, not consumer recovery or retained overlay transitions.
+
+Latest publication remains 0.6.3; `--replace-app` is merged but unreleased.
+Its one durable attempt per exact environment must be disclosed before consumer
+use. A future release needs its actual bumped-writer compatibility probe,
+changelog and adaptation prompt, then separately authorized publication and
+installation. The owning manual, bundled skill and AI prompt already describe
+the flag. Repeat replacement and primary-only recovery remain unqualified.
+The later dated and candidate-specific entries below preserve producing history;
+pending labels there do not supersede this current state.
+
 - Delivery completed: PR #169 merged at
   `525b4e23f2e4cb0ac3319a1abedde59020680d28`, complete tree equal to reviewed
   `094d7d8d801ebccc0ff7cb00cec73aaef6583c89`. Release
@@ -123,10 +143,10 @@ six finding dispositions remain the detailed contract and reusable plan critique
   proof uses the actual tag, equal Git trees and complete package byte equality.
   The requesting recovery owner's notice could not be confirmed because its
   task host was unavailable; other authorized owner notices were delivered.
-- Later receiving evidence confirms task-local 0.6.3 and official Devsy 1.24.0
+- Receiving evidence confirms task-local 0.6.3 and official Devsy 1.24.0
   agent adoption. That owner's consumer has not started. Its required application
-  replacement has no supported public 0.6.3 entrypoint; the proposed extension
-  below records this newly verified acceptance gap.
+  replacement has no public 0.6.3 entrypoint; the merged extension above remains
+  unreleased. Receiving runtime acceptance stays with that owner.
 - The existing consumer owner delivered the approved preserving post-create
   adaptation at `79cd33357a18e0581ee480f0e1837dacef17a666` in
   [draft PR #6652](https://github.com/uzh-bf/klicker-uzh/pull/6652).
@@ -206,7 +226,7 @@ six finding dispositions remain the detailed contract and reusable plan critique
   no universal environment equivalence or consumer-image proof is inferred.
 - The versioned mount producer passes a pure synthetic transformation on pinned
   Node 24.16.0. Actual consumer package/mount populations remain owner-qualified.
-- Product implementation is in progress; release remains pending. Current published CLI is 0.6.1.
+- Historical pre-0.6.2 checkpoint: product implementation was in progress and the then-published CLI was 0.6.1. Current delivery is recorded in Progress above.
 - The parser, durable attempt, startup composition and explicit controller intent
   transport are implemented. Initial native suite: 3,452 passing tests, with 13
   platform skips. New refusal and exact Git-mount cases await the next check.
@@ -413,7 +433,7 @@ provider preparation contract, without changing shared setup in this batch.
 
 ### Approval summary
 
-Status: approved for the finite implementation and conditional synthetic qualification batch below. No merge, release or installation authority is included.
+Status: the approved implementation and conditional synthetic qualification batch completed; the resulting source is merged through PR #171. The original approval envelope below is historical. Release and installation remain separate.
 
 The receiving consumer requires a supported application-container replacement
 before beginning its finite acceptance run. Released 0.6.3 can initialize and
@@ -590,7 +610,7 @@ networks, controller enrollment and reset recipes are not qualified by this
 batch. They require a separate transition design and explicit approval; the
 populated-reset planning owner should keep that exact gap visible.
 
-### Proposal progress
+### Proposal progress (historical, superseded by execution below)
 
 Source/contract investigation is complete; implementation and live qualification
 are unapproved. The first useful result is a truthful public-command capability
@@ -604,6 +624,11 @@ Provider-level preservation remains evidence, not public support.
 
 
 ### Replacement execution progress — 2026-10-30
+
+Current terminal: source, review, exact-head CI, packed qualification and merged
+result are complete as recorded in Progress above. The entries below preserve
+the intermediate approval and producing stages. No new release, installation
+or consumer acceptance follows from this merge.
 
 Actual human approval: recovery task `01a188fd-2c10-7e10-b62a-de8509b08f20`, turn `01a18e16-4de1-7340-951c-c6f2a1957f8a`, user message `01a18e16-4eee-7682-ad40-c8c721303eca` answered “approved” to the explicit implementation/review/CI/draft plus conditional 2 CPU/2 GiB/45-minute fixture and five-minute stop card. Main independently read that human message and preceding card. The immutable reviewed proposal is `35801825e99da2f6ef1cab8ca1323cc9051f1051`; its independent plan critique remains applicable. This supersedes the proposal's pending-approval descriptions only for the named replacement batch.
 
