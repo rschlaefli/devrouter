@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -97,6 +98,76 @@ afterEach(() => {
 });
 
 describe("collectRouterStatus", () => {
+  it.each([
+    0, 1,
+  ])("recommends exact-checkout startup for a managed profile with %i apps", async (appCount) => {
+    const checkout = path.join(repoPath, "pilot's checkout $HOME");
+    fs.mkdirSync(checkout);
+    fs.writeFileSync(path.join(checkout, ".devrouter.yml"), "version: 1\napps: []\n");
+    const apps = Array.from({ length: appCount }, () => ({
+      name: "web",
+      protocol: "http" as const,
+      runtime: "proxy" as const,
+      host: "web.localhost",
+      upstream: "web:3000",
+      dependencies: [],
+    }));
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: { version: 1, apps },
+      workspace: "feature",
+      profile: "full",
+    });
+    vi.mocked(collectManagedRuntimeStatus).mockReturnValue({ ...managedStatus, status: "stopped" });
+
+    const status = await collectRouterStatus(checkout);
+    const command = status.insights.nextSteps
+      .map((step) => step.match(/\bdevrouter ensure .*$/)?.[0])
+      .find(Boolean);
+    expect(command).toBeDefined();
+    const argv = execFileSync(
+      "/bin/sh",
+      ["-c", `devrouter() { printf '%s\\0' "$@"; }\n${command}`],
+      {
+        encoding: "utf8",
+      },
+    )
+      .split("\0")
+      .slice(0, -1);
+    expect(argv).toEqual(["ensure", checkout]);
+    expect(status.insights.nextSteps.some((step) => /\bdev app (?:run|add)\b/.test(step))).toBe(
+      false,
+    );
+  });
+
+  it("retains app startup guidance for a legacy repository", async () => {
+    vi.mocked(loadRuntimeConfig).mockReturnValue({
+      config: {
+        version: 1,
+        apps: [
+          {
+            name: "web",
+            protocol: "http",
+            runtime: "proxy",
+            host: "web.localhost",
+            upstream: "web:3000",
+            dependencies: [],
+          },
+        ],
+      },
+      workspace: undefined,
+      profile: "full",
+    });
+    vi.mocked(collectManagedRuntimeStatus).mockReturnValue({
+      ...managedStatus,
+      mode: "legacy",
+      status: "legacy",
+    });
+
+    const status = await collectRouterStatus(repoPath);
+    expect(status.insights.nextSteps.some((step) => /\bdev app run\b/.test(step))).toBe(true);
+    expect(status.insights.nextSteps.some((step) => /\bdevrouter ensure\b/.test(step))).toBe(false);
+  });
+
   it("attaches the values-free managed runtime status to a valid repository", async () => {
     const status = await collectRouterStatus(repoPath);
 
