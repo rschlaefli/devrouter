@@ -585,6 +585,27 @@ to the requesting owner. No current consumer is declared unblocked.
 
 ## Progress
 
+### Current lane boundary after realignment — 2026-10-31
+
+This plan owns the retained maintenance/reset contract. Its reviewed native
+transport experiment has reached its finite terminal; retain that evidence and
+its explicit limits. Trusted bootstrap execution, authoritative dependency/claim
+adapters, durable restart no-replay and a complete runnable consumer-owned
+semantic probe remain unqualified. Public implementation and runtime/data
+operations remain separate. Do not repeat the same fake transport proof as a
+new milestone without a specific changed or uncovered oracle.
+
+The main reliability roadmap's next milestone is ordinary retained-environment
+useful work through existing consumer owners. This reset-specific context is
+not a prerequisite for ordinary ensure or that acceptance. Preserve the pilot's
+partial success and its own source/CI/runtime conditions, receiving-host adoption
+boundaries, all receipts and unknown outcomes. No new execution, steering message,
+fixture, install or native-goal change follows from this document realignment.
+
+The following feasibility stages and intermediate next-step statements are
+historical evidence for this lane; the reviewed transport result below remains
+its latest producing result. They do not select the main task's critical path.
+
 Root outcome: supported retained maintenance/restore that preserves storage and
 enables the consumer owner's useful work under its authority. The approved
 source-only feasibility batch has reached its terminal with reviewed evidence
