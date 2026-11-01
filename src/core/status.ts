@@ -169,13 +169,18 @@ export async function collectRouterStatus(repoPath?: string): Promise<RouterStat
     nextSteps.push(`Run: dev repo init --repo ${repo.path}`);
   } else if (repo && !repo.valid) {
     nextSteps.push("Fix .devrouter.yml validation errors and re-run `dev doctor --repo <path>`");
-  } else if (repo?.valid && repo.appCount === 0) {
+  } else if (repo?.valid && repo.managedRuntime?.mode !== "managed" && repo.appCount === 0) {
     nextSteps.push(
       `Run: dev app add --name <name> --host <name>.localhost --protocol http --runtime host --repo ${repo.path}`,
     );
   } else if (repo?.valid) {
-    nextSteps.push(`Run: dev app ls --repo ${repo.path}`);
-    nextSteps.push("Run: dev app run <name> --repo <path> --yes");
+    if (repo.managedRuntime?.mode === "managed") {
+      const repoArgument = `'${repo.path.replaceAll("'", `'\\''`)}'`;
+      nextSteps.push(`Run: devrouter ensure ${repoArgument}`);
+    } else {
+      nextSteps.push(`Run: dev app ls --repo ${repo.path}`);
+      nextSteps.push("Run: dev app run <name> --repo <path> --yes");
+    }
     nextSteps.push("Run: dev ls");
     if (repo.managedRuntime?.mountNesting?.status === "unwound") {
       nextSteps.push(
