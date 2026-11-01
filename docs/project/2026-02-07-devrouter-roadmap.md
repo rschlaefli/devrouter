@@ -13,9 +13,9 @@ host-suspend and consumer evidence. The earlier
 is delivered source with explicitly open live acceptance, not the next source fix.
 
 The next milestone is an owner-verified ordinary retained-environment journey.
-Reuse the installed 0.6.4 synthetic state-machine coverage. The bounded source
-comparison found no new ordinary-start defect. Close actual useful-work
-acceptance through the existing consumer owner and
+Reuse the installed 0.6.4 synthetic state-machine coverage. Control-flow
+comparison is complete; retained storage bindings and contents remain open.
+Close actual useful-work acceptance through the existing consumer owner and
 remaining runtime authority. A new fixture needs a specific uncovered oracle.
 Retained maintenance/reset is a separate lane and does not gate ordinary startup.
 

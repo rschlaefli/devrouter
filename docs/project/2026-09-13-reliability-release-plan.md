@@ -10,9 +10,9 @@ or assemble a sequence of repair commands from chat history.
 
 **Next acceptance milestone:** close one affected consumer's ordinary retained
 journey on the qualified installed release, through its existing owner. The
-source comparison below is complete without a new ordinary-start defect; reuse
-the installed synthetic coverage and preserving source evidence. The remaining
-gap is an owner-verified useful-work/recovery receipt,
+control-flow comparison below is complete; reuse the installed synthetic
+coverage and preserving source evidence. Retained storage bindings still need
+qualification. The remaining gap is an owner-verified useful-work/recovery receipt,
 not another release or the reset-specific maintenance transport. No new fixture
 is a prerequisite unless a specific uncovered behavior is identified.
 
@@ -94,7 +94,7 @@ The remaining recommendations are recorded here without creating new authority.
 
 | Work | Next acceptance and owner | Authority and boundary |
 | --- | --- | --- |
-| Ordinary consumer acceptance | Source comparison is complete without a new ordinary-start defect. Reuse installed 0.6.4 coverage and obtain one owner-held ordinary useful-work/recovery receipt after that owner's source/CI and runtime conditions hold. | This is the next useful milestone. Preserve partial consumer success. New runtime allowances, other-host adoption and consumer data effects require that owner's actual authority. |
+| Ordinary consumer acceptance | Control-flow comparison is complete; retained storage bindings and contents remain unqualified. Reuse installed 0.6.4 coverage and obtain one owner-held ordinary useful-work/recovery receipt after that owner's source/CI and runtime conditions hold. | This is the next useful milestone. Preserve partial consumer success. New runtime allowances, other-host adoption and consumer data effects require that owner's actual authority. |
 | Replacement release delivery | [0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4) is merged, published and verified locally; registry integrity and all 106 package members pass. Consumer owners received the notice. | Approved delivery terminal reached. Do not repeat acquisition, packaging or installation without a changed acceptance boundary. Receiving-host adoption remains separate. |
 | Retained maintenance contract | Native transport proof is reviewed: 61 fake-child cases and 56 existing controls pass. [Current lane boundary](https://github.com/rschlaefli/devrouter/blob/741ef0f9/docs/project/2026-10-30-retained-maintenance-transition-plan.md#current-lane-boundary-after-realignment--2026-10-31) preserves the unqualified trusted bootstrap, dependency/claim adapters and complete runnable consumer probe. | Separate reset/maintenance lane, not a prerequisite for ordinary startup. Its finite transport experiment is complete; public implementation and live/data effects remain separate. |
 | Repeat replacement and shared tooling | Preserve proposed repeat-replacement, routing, result-classification, task-binding and fixture-validation follow-ups with their existing owners. | Follow-ups do not block independent ordinary-startup work. No receipt deletion, new supervisor, global rewrite or consumer takeover. |
@@ -369,7 +369,8 @@ broader goal complete.
 
 ### Source comparison and continuation — 2026-11-01
 
-The bounded source comparison found no new ordinary-start defect. Preparation
+The bounded source comparison found no new control-flow defect. It does not
+establish retained storage preservation after container loss. Preparation
 still precedes selection under the lifecycle lock. An exact retained degraded
 generation selects repair; a non-degraded stopped generation takes provider
 startup. Replacement remains an explicit branch. The reviewed preserving
@@ -387,6 +388,28 @@ this comparison starts no consumer runtime and establishes no new recovery.
 The next dependent action is the owner's bounded acceptance after its source,
 compatibility and actual runtime-authority conditions hold. Independent roadmap
 delivery continues while those conditions remain open.
+
+### Retained storage qualification after container loss — 2026-11-01
+
+Existing disappeared-project tests protect lifecycle rebaselining and refusal
+when inspection is unavailable. They do not prove that each former data mount
+is reattached. Docker Compose documents that anonymous volumes can survive
+container removal without being mounted by a subsequent `up`; persistent data
+needs explicit mount bindings. See the
+[official volume lifecycle contract](https://github.com/docker/compose/blob/main/docs/reference/compose_down.md).
+
+A preserving reconstruction must prove the intended daemon and registration,
+the retained volume identities, and the exact service/destination bindings in
+the resolved configuration before dispatch. Volume existence alone is not a
+continuity receipt. Then verify retained application contents, useful work,
+the protected neighbour and the final canonical stop. Unknown contents or
+unbound former data mounts remain open; they cannot silently become disposable
+state. A changed persistence guarantee requires an explicit human decision.
+
+Keep any required declarative binding correction with the existing consumer
+owner and its actual source/runtime authority. This qualification gap grants
+no implicit volume adoption, initialization, reset, deletion or live attempt,
+and does not reopen completed package or transport qualification.
 
 The 2026-10-30 brief is superseded by this section. Historical execution records
 and approval-bound plan inputs below remain preserved. Detailed fresh
