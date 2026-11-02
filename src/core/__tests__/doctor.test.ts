@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -579,46 +580,108 @@ profiles:
     });
   });
 
-  it("preserves a non-default variant in ensure recovery commands", async () => {
-    writeRepoFiles({ composeEnv: "      POSTGRES_HOST_AUTH_METHOD: trust" });
-    vi.mocked(collectRouterStatus).mockResolvedValue({
-      ...makeStatus(tmpDir, true),
-      repo: {
-        ...makeStatus(tmpDir, true).repo!,
-        managedRuntime: makeManagedRuntimeStatus({ status: "stopped", activeVariant: "ci" }),
-      },
-    });
-    const report = await buildDoctorReport({ repo: tmpDir });
-    expect(
-      report.checks.find((entry) => entry.id === "repo.managed-runtime")?.suggestion,
-    ).toContain("--variant ci");
-  });
-
-  it("reports failed transitions without suggesting an unsafe retry", async () => {
-    writeRepoFiles({
-      composeEnv: "      POSTGRES_HOST_AUTH_METHOD: trust",
-    });
-    vi.mocked(collectRouterStatus).mockResolvedValue({
-      ...makeStatus(tmpDir, true),
-      repo: {
-        ...makeStatus(tmpDir, true).repo!,
-        managedRuntime: makeManagedRuntimeStatus({
-          status: "failed-transition",
-          transitionPhase: "rollback",
-          drift: ["previous runtime could not be restored"],
-        }),
-      },
-    });
-
-    const report = await buildDoctorReport({ repo: tmpDir });
-    const check = report.checks.find((entry) => entry.id === "repo.managed-runtime");
-
-    expect(check).toMatchObject({
+  it.each([
+    {
+      name: "stopped startup",
+      runtime: { status: "stopped", activeVariant: "ci" },
+      checkId: "repo.managed-runtime",
+      level: "warn",
+      expected: (checkout: string) => ["devrouter", "ensure", checkout, "--variant", "ci"],
+    },
+    {
+      name: "failed-transition inspection",
+      runtime: { status: "failed-transition" },
+      checkId: "repo.managed-runtime",
       level: "error",
-      summary: "Managed runtime profile 'ai' has a failed transition.",
-      details: "transitionPhase=rollback; previous runtime could not be restored",
-      suggestion: `Inspect: dev status --repo ${tmpDir}; resolve the reported drift before retrying ensure.`,
+      expected: (checkout: string) => ["devrouter", "status", "--repo", checkout],
+    },
+    {
+      name: "unwound mount restart",
+      runtime: {
+        activeVariant: "ci",
+        mountNesting: {
+          status: "unwound",
+          checked: [],
+          unwound: [{ destination: "/workspace/deps", source: "deps", nestedWithin: "/workspace" }],
+        },
+      },
+      checkId: "repo.managed-mount-nesting",
+      level: "warn",
+      expected: (checkout: string) => [
+        "devrouter",
+        "stop",
+        checkout,
+        "devrouter",
+        "ensure",
+        checkout,
+        "--variant",
+        "ci",
+      ],
+    },
+    {
+      name: "unverified mount inspection",
+      runtime: {
+        mountNesting: { status: "unverified", checked: [], unwound: [] },
+      },
+      checkId: "repo.managed-mount-nesting",
+      level: "warn",
+      expected: (checkout: string) => [
+        "devrouter",
+        "exec",
+        checkout,
+        "--",
+        "cat",
+        "/proc/self/mountinfo",
+      ],
+    },
+  ] satisfies Array<{
+    name: string;
+    runtime: Partial<ManagedRuntimeStatus>;
+    checkId: string;
+    level: string;
+    expected: (checkout: string) => string[];
+  }>)("preserves literal checkout arguments for $name", async ({
+    runtime,
+    checkId,
+    level,
+    expected,
+  }) => {
+    writeRepoFiles({ composeEnv: "      POSTGRES_HOST_AUTH_METHOD: trust" });
+    const checkout = path.join(tmpDir, "pilot's checkout $HOME");
+    fs.mkdirSync(checkout);
+    for (const name of [".devrouter.yml", "docker-compose.yml"]) {
+      fs.copyFileSync(path.join(tmpDir, name), path.join(checkout, name));
+    }
+    vi.mocked(collectRouterStatus).mockResolvedValue({
+      ...makeStatus(checkout, true),
+      repo: {
+        ...makeStatus(checkout, true).repo!,
+        managedRuntime: makeManagedRuntimeStatus(runtime),
+      },
     });
+    const report = await buildDoctorReport({ repo: checkout });
+    const check = report.checks.find((entry) => entry.id === checkId);
+    expect(check?.level).toBe(level);
+    const suggestion = check?.suggestion;
+    const commands = suggestion?.match(
+      /\b(?:devrouter|dev) (?:stop|ensure|exec|status) .*?(?= and then | to |;|$)/g,
+    );
+    expect(commands).toBeDefined();
+    const argv = execFileSync(
+      "/bin/sh",
+      [
+        "-c",
+        [
+          "devrouter() { printf '%s\\0' devrouter \"$@\"; }",
+          "dev() { printf '%s\\0' dev \"$@\"; }",
+          ...commands!,
+        ].join("\n"),
+      ],
+      { encoding: "utf8" },
+    )
+      .split("\0")
+      .slice(0, -1);
+    expect(argv).toEqual(expected(checkout));
   });
 });
 

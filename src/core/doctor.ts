@@ -512,6 +512,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
 
       if (repo.managedRuntime) {
         const managedRuntime = repo.managedRuntime;
+        const repoArgument = `'${repo.path.replaceAll("'", `'\\''`)}'`;
         const variantOption =
           managedRuntime.activeVariant && managedRuntime.activeVariant !== "default"
             ? ` --variant ${managedRuntime.activeVariant}`
@@ -554,10 +555,10 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
             managedRuntime.mode === "legacy"
               ? undefined
               : managedRuntime.status === "failed-transition"
-                ? `Inspect: dev status --repo ${repo.path}; resolve the reported drift before retrying ensure.`
+                ? `Inspect: devrouter status --repo ${repoArgument}; resolve the reported drift before retrying ensure.`
                 : managedRuntime.status === "ready"
                   ? undefined
-                  : `Run: dev ensure ${repo.path}${variantOption}`,
+                  : `Run: devrouter ensure ${repoArgument}${variantOption}`,
         });
 
         const mountNesting = managedRuntime.mountNesting;
@@ -577,7 +578,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
                     `unwound=${entry.destination} (source ${entry.source} inside ${entry.nestedWithin})`,
                 ),
               ].join("; "),
-              suggestion: `Run: devrouter stop ${repo.path} and then devrouter ensure ${repo.path}${variantOption} to restart the exact container, which re-applies the nested mount.`,
+              suggestion: `Run: devrouter stop ${repoArgument} and then devrouter ensure ${repoArgument}${variantOption} to restart the exact container, which re-applies the nested mount.`,
             });
           } else if (mountNesting.status === "unverified") {
             addCheck(checks, {
@@ -588,7 +589,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
                 `container=${container}`,
                 `reason=${mountNesting.reason ?? "unknown"}`,
               ].join("; "),
-              suggestion: `Run: devrouter exec ${repo.path} -- cat /proc/self/mountinfo to read the container's own mount table.`,
+              suggestion: `Run: devrouter exec ${repoArgument} -- cat /proc/self/mountinfo to read the container's own mount table.`,
             });
           } else {
             addCheck(checks, {

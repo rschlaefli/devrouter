@@ -174,8 +174,8 @@ export async function collectRouterStatus(repoPath?: string): Promise<RouterStat
       `Run: dev app add --name <name> --host <name>.localhost --protocol http --runtime host --repo ${repo.path}`,
     );
   } else if (repo?.valid) {
+    const repoArgument = `'${repo.path.replaceAll("'", `'\\''`)}'`;
     if (repo.managedRuntime?.mode === "managed") {
-      const repoArgument = `'${repo.path.replaceAll("'", `'\\''`)}'`;
       nextSteps.push(`Run: devrouter ensure ${repoArgument}`);
     } else {
       nextSteps.push(`Run: dev app ls --repo ${repo.path}`);
@@ -184,7 +184,7 @@ export async function collectRouterStatus(repoPath?: string): Promise<RouterStat
     nextSteps.push("Run: dev ls");
     if (repo.managedRuntime?.mountNesting?.status === "unwound") {
       nextSteps.push(
-        `Run: devrouter stop ${repo.path} and then devrouter ensure ${repo.path} to re-apply the unwound nested mount`,
+        `Run: devrouter stop ${repoArgument} and then devrouter ensure ${repoArgument} to re-apply the unwound nested mount`,
       );
     }
   }

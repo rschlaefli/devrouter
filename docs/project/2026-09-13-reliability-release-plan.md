@@ -28,7 +28,34 @@ status, doctor and exec against their actual eligibility checks. Reuse passing
 qualification and correct only demonstrated mismatches. Independent consumer
 verification stays with its owner; retained maintenance/reset remains separate.
 
-**Delivery status:** [0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4)
+The approved source-only batch now covers the remaining managed diagnostic
+command arguments. Five regression cases reproduced broken quoting in startup,
+failed-transition inspection and nested-mount restart/inspection guidance.
+The correction uses canonical `devrouter` commands and literal checkout
+arguments, preserving current variants, diagnostic levels and eligibility rules.
+All 31 focused status/doctor tests and required local source/package checks pass.
+Draft delivery and candidate CI remain pending. Review these related rendering branches together;
+the earlier startup-only package did not cover every diagnostic command.
+Broader execution-eligibility equivalence is not established by this quoting fix.
+
+**Delivery status:** [0.6.5](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.5)
+is published from `e1e5b081342d6046424c22b37764717cfedf6712` through
+[PR #175](https://github.com/rschlaefli/devrouter/pull/175). Its complete tree
+equals tested candidate `d61e5c26637e7ad6382ca5cf9bdc69aba8001bd8`.
+[Candidate CI](https://github.com/rschlaefli/devrouter/actions/runs/41341678387),
+[merged-main CI](https://github.com/rschlaefli/devrouter/actions/runs/41342796712)
+and [release CI/publication](https://github.com/rschlaefli/devrouter/actions/runs/41343704449)
+pass. Official registry integrity and all 107 package files match the held
+qualification bytes and modes. The managed-startup guidance fix adds no lifecycle
+or configuration schema change. Receiving-host adoption and consumer activation
+retain their own evidence and authority.
+
+One controller IPC test exceeded its five-second deadline in the first merged
+run on unchanged source. Its focused recheck, the bounded CI retry and the release
+run passed. Deterministic controller test timing remains a separate hardening
+follow-up; its root cause is unproved.
+
+**Prior replacement release:** [0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4)
 is published from merged revision `60cd90ee547a805e920528db406fc7cf6f8ac3d8`
 through [PR #173](https://github.com/rschlaefli/devrouter/pull/173).
 The complete merged tree equals reviewed candidate `6920eb560a96c7e0e4af35b5deae8749a7ebcf37`.

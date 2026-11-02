@@ -139,6 +139,32 @@ describe("collectRouterStatus", () => {
     );
   });
 
+  it("keeps the exact checkout in both unwound mount recovery commands", async () => {
+    const checkout = path.join(repoPath, "pilot's checkout $HOME");
+    fs.mkdirSync(checkout);
+    fs.writeFileSync(path.join(checkout, ".devrouter.yml"), "version: 1\napps: []\n");
+    vi.mocked(collectManagedRuntimeStatus).mockReturnValue({
+      ...managedStatus,
+      mountNesting: {
+        status: "unwound",
+        checked: [],
+        unwound: [{ destination: "/workspace/deps", source: "deps", nestedWithin: "/workspace" }],
+      },
+    });
+    const status = await collectRouterStatus(checkout);
+    const suggestion = status.insights.nextSteps.find((step) => /\bdevrouter stop\b/.test(step));
+    const commands = suggestion?.match(/\bdevrouter (?:stop|ensure) .*?(?= and then | to |$)/g);
+    expect(commands).toBeDefined();
+    const argv = execFileSync(
+      "/bin/sh",
+      ["-c", ["devrouter() { printf '%s\\0' \"$@\"; }", ...commands!].join("\n")],
+      { encoding: "utf8" },
+    )
+      .split("\0")
+      .slice(0, -1);
+    expect(argv).toEqual(["stop", checkout, "ensure", checkout]);
+  });
+
   it("retains app startup guidance for a legacy repository", async () => {
     vi.mocked(loadRuntimeConfig).mockReturnValue({
       config: {
