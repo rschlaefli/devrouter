@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-11-02
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.6.6.md
+
+### Fixed
+
+- Managed status/doctor recovery commands preserve literal checkout arguments
+  containing spaces or apostrophes, including startup, failed-transition
+  inspection and nested-mount restart/inspection. Canonical `devrouter` names
+  retain existing variant flags, diagnostic levels and eligibility checks.
+
+### Compatibility
+
+- Coordinate participating readers, writers, harnesses and controllers before
+  writing shared lifecycle state. Older clients refuse newer-writer journals.
+  Preserve journals and durable attempts; installation alone authorizes no startup.
+
 ## [0.6.5] - 2026-11-01
 
 ### Agent Adaptation Prompt
