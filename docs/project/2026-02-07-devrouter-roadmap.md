@@ -19,10 +19,19 @@ terminal stops. [Consumer draft #6652](https://github.com/uzh-bf/klicker-uzh/pul
 contains inspected evidence. Broader consumer readiness and portability remain
 open; the acceptance roadmap owns the exact limits.
 
-Next, qualify recovery advice across ensure, status, doctor and exec against
-their actual eligibility checks, correcting demonstrated mismatches. Reuse
-passing evidence and preserve independent consumer owners. Retained maintenance/
-reset remains a separate lane with its own unqualified contract and authority.
+The current bounded source batch makes managed recovery commands in status and
+doctor shell-safe, including startup, failed-transition inspection and nested
+mount diagnostics. Argument-level regressions protect literal checkout paths,
+canonical executable names and existing variant flags. Broader qualification
+against execution eligibility remains open. Reuse passing evidence and preserve
+independent consumer owners. Retained maintenance/reset remains a separate lane
+with its own unqualified contract and authority.
+
+[0.6.5](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.5) shipped the
+initial managed-startup guidance correction through
+[PR #175](https://github.com/rschlaefli/devrouter/pull/175). Candidate, merged-main
+and release CI pass; all 107 registry package files match the qualified bytes and
+modes. Receiving-host adoption and consumer runtime acceptance remain separate.
 
 Primary-only app replacement and newer-writer diagnostics are released in
 [0.6.4](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.4) through
