@@ -28,15 +28,20 @@ status, doctor and exec against their actual eligibility checks. Reuse passing
 qualification and correct only demonstrated mismatches. Independent consumer
 verification stays with its owner; retained maintenance/reset remains separate.
 
-The approved source-only batch now covers the remaining managed diagnostic
-command arguments. Five regression cases reproduced broken quoting in startup,
-failed-transition inspection and nested-mount restart/inspection guidance.
-The correction uses canonical `devrouter` commands and literal checkout
-arguments, preserving current variants, diagnostic levels and eligibility rules.
-All 31 focused status/doctor tests and required local source/package checks pass.
-Draft delivery and candidate CI remain pending. Review these related rendering branches together;
-the earlier startup-only package did not cover every diagnostic command.
-Broader execution-eligibility equivalence is not established by this quoting fix.
+The diagnostic command rendering correction is merged through
+[PR #176](https://github.com/rschlaefli/devrouter/pull/176) at
+`b61a8fae67d944cf148e069ef8bf57cd4ef4efc1`; its complete tree equals tested
+candidate `e30a50f31ce88dc8c522e809883f37d934650d3c`.
+[Candidate CI](https://github.com/rschlaefli/devrouter/actions/runs/41485436515) and
+[merged-main CI](https://github.com/rschlaefli/devrouter/actions/runs/41506459554)
+passed on their first attempts. Five regressions reproduced broken argument
+boundaries; all 31 focused cases and required native/package checks pass.
+Canonical commands preserve variants, diagnostic levels and eligibility rules.
+The [approved 0.6.6 release batch](./2026-11-02-release-0.6.6-plan.md) owns fresh
+packed/version compatibility proof and conditional delivery; publication remains
+pending. Review related rendering branches together, preserving the lesson from
+the earlier startup-only package. Broader execution-eligibility equivalence is
+not established by this quoting fix.
 
 **Delivery status:** [0.6.5](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.5)
 is published from `e1e5b081342d6046424c22b37764717cfedf6712` through

@@ -19,13 +19,14 @@ terminal stops. [Consumer draft #6652](https://github.com/uzh-bf/klicker-uzh/pul
 contains inspected evidence. Broader consumer readiness and portability remain
 open; the acceptance roadmap owns the exact limits.
 
-The current bounded source batch makes managed recovery commands in status and
-doctor shell-safe, including startup, failed-transition inspection and nested
-mount diagnostics. Argument-level regressions protect literal checkout paths,
-canonical executable names and existing variant flags. Broader qualification
-against execution eligibility remains open. Reuse passing evidence and preserve
-independent consumer owners. Retained maintenance/reset remains a separate lane
-with its own unqualified contract and authority.
+The managed recovery-command rendering correction is merged in
+[PR #176](https://github.com/rschlaefli/devrouter/pull/176) at `b61a8fae`, with
+complete tested-tree equality and passing merged-main CI. Argument regressions
+protect literal checkout paths, canonical executable names and existing variants.
+The [0.6.6 release batch](./2026-11-02-release-0.6.6-plan.md) now owns packed
+qualification, publication and conditional local adoption; that delivery is pending.
+Broader recovery-guidance eligibility remains open. Retained maintenance/reset
+stays in its separate lane with independent authority and acceptance.
 
 [0.6.5](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.5) shipped the
 initial managed-startup guidance correction through
