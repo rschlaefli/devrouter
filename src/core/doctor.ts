@@ -578,7 +578,10 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
                     `unwound=${entry.destination} (source ${entry.source} inside ${entry.nestedWithin})`,
                 ),
               ].join("; "),
-              suggestion: `Run: devrouter stop ${repoArgument} and then devrouter ensure ${repoArgument}${variantOption} to restart the exact container, which re-applies the nested mount.`,
+              suggestion:
+                managedRuntime.status === "failed-transition"
+                  ? undefined
+                  : `Run: devrouter stop ${repoArgument} and then devrouter ensure ${repoArgument}${variantOption} to restart the exact container, which re-applies the nested mount.`,
             });
           } else if (mountNesting.status === "unverified") {
             addCheck(checks, {

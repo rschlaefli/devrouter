@@ -1,6 +1,6 @@
 # Reliable managed development environments
 
-## Current direction and acceptance — 2026-11-01
+## Current direction and acceptance — 2026-11-02
 
 **Outcome: an agent asks for an environment once, then works.** Devrouter should
 reach verified application readiness through bounded, preserving recovery. When
@@ -37,11 +37,29 @@ candidate `e30a50f31ce88dc8c522e809883f37d934650d3c`.
 passed on their first attempts. Five regressions reproduced broken argument
 boundaries; all 31 focused cases and required native/package checks pass.
 Canonical commands preserve variants, diagnostic levels and eligibility rules.
-The [approved 0.6.6 release batch](./2026-11-02-release-0.6.6-plan.md) owns fresh
-packed/version compatibility proof and conditional delivery; publication remains
-pending. Review related rendering branches together, preserving the lesson from
-the earlier startup-only package. Broader execution-eligibility equivalence is
-not established by this quoting fix.
+The [0.6.6 release batch](./2026-11-02-release-0.6.6-plan.md) is delivered through
+[PR #177](https://github.com/rschlaefli/devrouter/pull/177) at
+`5931c00f1db0a31c64507358852c64261e0d9898`.
+[Candidate CI](https://github.com/rschlaefli/devrouter/actions/runs/41513388759),
+[merged-main CI](https://github.com/rschlaefli/devrouter/actions/runs/41514687350)
+and [release/publication CI](https://github.com/rschlaefli/devrouter/actions/runs/41515982881)
+passed on their first attempts. Registry integrity and all 108 package members
+match the held tested bytes and modes. Actual packed 0.6.6 writer/released 0.6.5
+reader checks preserve refusal and journal/receipt immutability; this is isolated
+compiled-seam evidence, not public-worker IPC or consumer recovery. Receiving-host
+adoption and consumer activation retain their own authority and acceptance.
+
+The approved source batch now fixes a demonstrated advice conflict: status adds
+ordinary ensure to failed-transition results, and doctor merges it back into
+otherwise inspection-only advice. Unwound-mount suggestions can also introduce a
+stop/ensure retry. Four native regressions reproduce those branches through the
+actual status collector and combined doctor output; all 35 focused cases pass
+after the correction. Lifecycle guards and non-failed startup/mount behavior are
+unchanged. Required native/build/package checks pass, with 3,530 native passes
+and 13 platform skips. Integrated review and draft CI remain pending. The combined
+regression uses actual status-produced advice; empty insight mocks missed this
+conflict. No runtime is needed for this diagnostic-only correction. Broader
+execution-eligibility equivalence remains open.
 
 **Delivery status:** [0.6.5](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.5)
 is published from `e1e5b081342d6046424c22b37764717cfedf6712` through

@@ -175,14 +175,19 @@ export async function collectRouterStatus(repoPath?: string): Promise<RouterStat
     );
   } else if (repo?.valid) {
     const repoArgument = `'${repo.path.replaceAll("'", `'\\''`)}'`;
+    const failedTransition = repo.managedRuntime?.status === "failed-transition";
     if (repo.managedRuntime?.mode === "managed") {
-      nextSteps.push(`Run: devrouter ensure ${repoArgument}`);
+      nextSteps.push(
+        failedTransition
+          ? `Inspect: devrouter status --repo ${repoArgument}; resolve the reported drift before retrying ensure.`
+          : `Run: devrouter ensure ${repoArgument}`,
+      );
     } else {
       nextSteps.push(`Run: dev app ls --repo ${repo.path}`);
       nextSteps.push("Run: dev app run <name> --repo <path> --yes");
     }
     nextSteps.push("Run: dev ls");
-    if (repo.managedRuntime?.mountNesting?.status === "unwound") {
+    if (!failedTransition && repo.managedRuntime?.mountNesting?.status === "unwound") {
       nextSteps.push(
         `Run: devrouter stop ${repoArgument} and then devrouter ensure ${repoArgument} to re-apply the unwound nested mount`,
       );
