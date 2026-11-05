@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-11-05
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.6.7.md
+
+### Fixed
+
+- Failed-transition guidance from status and doctor consistently directs checkout
+  inspection. Their combined output no longer introduces ordinary ensure or
+  unwound-mount stop/ensure retries before the reported transition is resolved.
+  Existing startup eligibility, ownership guards and diagnostic levels remain.
+
+### Compatibility
+
+- Coordinate participating readers, writers, harnesses and controllers before
+  the first 0.6.7 lifecycle write. Older 0.6.6 clients refuse its newer-writer
+  journals even without a schema change. Preserve journals and durable attempts;
+  installation alone authorizes no startup, replay or receiving-host adoption.
+
 ## [0.6.6] - 2026-11-02
 
 ### Agent Adaptation Prompt
