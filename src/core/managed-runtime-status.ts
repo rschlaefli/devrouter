@@ -39,20 +39,20 @@ function recoveryPath(repoPath: string): string {
   return `'${repoPath.replaceAll("'", "'\\''")}'`;
 }
 
-const HISTORY_CAUSES = new Set<CapacityHistoryCause>([
-  "journal-directory-unreadable",
-  "journal-directory-unsafe",
-  "journal-entry-unsupported",
-  "journal-enumeration-limit",
-  "journal-enumeration-timeout",
-  "journal-unreadable",
-  "journal-entry-unsafe",
-  "journal-invalid",
-  "journal-writer-newer",
-  "journal-identity-mismatch",
-  "journal-unstable",
-  "journal-enumeration-failed",
-]);
+const HISTORY_CAUSES = {
+  "journal-directory-unreadable": true,
+  "journal-directory-unsafe": true,
+  "journal-entry-unsupported": true,
+  "journal-enumeration-limit": true,
+  "journal-enumeration-timeout": true,
+  "journal-unreadable": true,
+  "journal-entry-unsafe": true,
+  "journal-invalid": true,
+  "journal-writer-newer": true,
+  "journal-identity-mismatch": true,
+  "journal-unstable": true,
+  "journal-enumeration-failed": true,
+} satisfies Record<CapacityHistoryCause, true>;
 
 /** Recovery that must take precedence over ordinary startup and mount restart advice. */
 export function managedRuntimeRecovery(
@@ -60,9 +60,7 @@ export function managedRuntimeRecovery(
   repoPath: string,
 ): string[] | undefined {
   const checkout = recoveryPath(repoPath);
-  const historyCause = runtime.drift.find((entry) =>
-    HISTORY_CAUSES.has(entry as CapacityHistoryCause),
-  );
+  const historyCause = runtime.drift.find((entry) => Object.hasOwn(HISTORY_CAUSES, entry));
   if (historyCause) {
     return [
       historyCause === "journal-writer-newer"

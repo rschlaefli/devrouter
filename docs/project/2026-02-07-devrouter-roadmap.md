@@ -43,9 +43,11 @@ and participating-client compatibility remains unconfirmed. No owner notice or
 receiving recovery is claimed.
 
 The approved [recovery guidance matrix](./2026-11-05-recovery-guidance-parity-plan.md)
-is now the independent source package in `trees/rs/recovery-guidance-parity`.
+is delivered as [draft PR #180](https://github.com/rschlaefli/devrouter/pull/180)
+in `trees/rs/recovery-guidance-parity`.
 It corrects demonstrated report contradictions and qualifies eight bounded state
-families through actual packed public commands. Its terminal is reviewed,
+families through 13 actual packed public-command cells. The first candidate has
+passing clean-tree CI; the PR owns the final correction review and latest CI. Its terminal is reviewed,
 CI-green draft delivery; ready, merge and release are excluded. The existing
 native goal remains blocked because its resume control is user-only; actual
 human approval authorizes the source batch through available tools. The

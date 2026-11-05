@@ -139,9 +139,13 @@ false-ready results. The correction reads lifecycle history before readiness and
 uses existing drift fields with closed causes. Both advice surfaces now preserve
 failed-transition and live/uncertain operation guidance. Sixty-three focused
 native tests and all 3,534 native suite tests pass (13 platform skips). The eight
-state families pass across 13 packed fixture cells; final stronger cross-report
-argv and ownership-inspection assertions are being verified. All original
-qualifier controls also pass. This remains isolated provider protocol evidence,
+state families pass across 13 packed fixture cells, including the stronger
+cross-report argv and ownership-inspection assertions. All original qualifier
+controls also pass. [CI](https://github.com/rschlaefli/devrouter/actions/runs/42044812718)
+passed on its first attempt for source candidate `fb6d82c0`; its clean tested
+merge `56da8a3ec7f3ee4d040cc6f93ea1109042b18565` has the identical complete
+tree. Linux ran all 3,547 native tests. The final cause table is now checked
+exhaustively against CapacityHistoryCause; focused tests and types pass. This remains isolated provider protocol evidence,
 not a live consumer or universal recovery claim. Fixture failures are corrected as test failures,
 including complete read-only network probes and actual interruption provenance.
 No host runtime, consumer, selected provider or global CLI was changed.
@@ -157,7 +161,10 @@ Opengrep scanned the three changed production files with zero findings/errors.
 No runtime/API guard, schema, dependency or command surface changed. The package
 adds about 600 substantive lines including its maintained executable fixture.
 
-Next: finish the final packed assertions, exact staged privacy/diff inspection
-and implementation commit; then one integrated final
-review, ordinary branch push and one draft PR with exact-source CI. Review and
-CI corrections retain the approved bounds. No matrix ready/merge/release.
+Implementation is published in [draft PR #180](https://github.com/rschlaefli/devrouter/pull/180).
+The initial integrated review found no current source defect. Its missing clean
+matrix evidence is resolved by the producing CI and full-tree equality; the
+optional exhaustive-table hardening is applied. One focused review checks that
+correction and evidence. The PR owns latest-head review and exact-source CI
+status. Their passing terminal completes this source batch, with no matrix
+ready/merge/release or consumer acceptance inferred.
