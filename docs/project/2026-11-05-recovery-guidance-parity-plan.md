@@ -89,7 +89,8 @@ Potential correction paths are `src/core/status.ts`, `src/core/doctor.ts`,
 `src/core/managed-runtime-status.ts` and their existing tests. Add no new public
 schema, command, dependency or generic action layer. Fault provenance: ready/stopped and unknown execution are produced through public
 ensure/exec/stop; busy uses the existing live-child barrier; known interrupted
-uses a pre-dispatch cancellation barrier. Failed/degraded state, unwound mounts,
+uses a post-provider readiness cancellation barrier. The pre-dispatch cancellation
+control preserves the earlier completed operation, so it is not counted as an interrupted record. Failed/degraded state, unwound mounts,
 future writer stamp, holder bindings, foreign labels and surviving stop resources
 are explicitly test-owned fault observations. They prove guarded protocol behavior,
 not real ownership or live recovery. After failed-transition inspection, resolve
@@ -128,13 +129,35 @@ Preserve consumed effects and all prior accepted qualification.
 
 ## Progress
 
-Actual root approval is recovered privately. Existing release candidate and
-0.6.7 package proof remain with their release worktree. The required publication
-workflow is independently running; matrix source/prototype is independent and
-cannot hold its publication. No consumer owner is resumed by this package.
+Plan critique and its one focused correction are complete and dispositioned.
+The plan was committed first at `70a35fb9`. Main owns all paths in this full-path
+package. Current baseline remains released main `f1e688d6`; source, native tests
+and the existing packed qualifier now contain the bounded matrix corrections.
 
-Current source baseline is f1e688d6. A private prototype verified real packed
-status/doctor collection and isolated the extra read-only fixture queries. No
-maintained source change yet. Existing ready/stopped, uncertain command, busy
-worker, writer refusal, conflict, ownership and stop controls are reusable inputs,
-not complete advice-to-next-action proof. All eight cells remain to qualify.
+The first native regression reproduced both newer-writer and generic read-error
+false-ready results. The correction reads lifecycle history before readiness and
+uses existing drift fields with closed causes. Both advice surfaces now preserve
+failed-transition and live/uncertain operation guidance. Sixty-three focused
+native tests and all 3,534 native suite tests pass (13 platform skips). The eight
+state families pass across 13 packed fixture cells; final stronger cross-report
+argv and ownership-inspection assertions are being verified. All original
+qualifier controls also pass. This remains isolated provider protocol evidence,
+not a live consumer or universal recovery claim. Fixture failures are corrected as test failures,
+including complete read-only network probes and actual interruption provenance.
+No host runtime, consumer, selected provider or global CLI was changed.
+
+Release PR #179 is merged and 0.6.7 is package-verified/published. Owner routes
+were unavailable, holding compatibility requests, conditional local installation
+and notices. The root native goal remains blocked under its user-only resume
+control; actual approval covers available source work without a replacement goal.
+Whole-outcome completion still requires owner-held consumer acceptance.
+
+Docs policy, knowledge, lint, Knip, types, build and package smoke pass. Focused
+Opengrep scanned the three changed production files with zero findings/errors.
+No runtime/API guard, schema, dependency or command surface changed. The package
+adds about 600 substantive lines including its maintained executable fixture.
+
+Next: finish the final packed assertions, exact staged privacy/diff inspection
+and implementation commit; then one integrated final
+review, ordinary branch push and one draft PR with exact-source CI. Review and
+CI corrections retain the approved bounds. No matrix ready/merge/release.

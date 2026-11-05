@@ -56,7 +56,10 @@ vi.mock("../managed-runtime-state", () => ({
 vi.mock("../workspace", () => ({
   sameWorkspacePath: vi.fn((left: string, right: string) => left === right),
 }));
-vi.mock("../reliability-operation-store", () => ({ readReliabilityOperation: vi.fn() }));
+vi.mock("../reliability-operation-store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../reliability-operation-store")>()),
+  readReliabilityOperation: vi.fn(),
+}));
 vi.mock("../workspace-runtime", () => ({ resolveWorkspaceRuntimeForReport: vi.fn() }));
 
 import {
@@ -69,7 +72,7 @@ import { readLifecycleDiagnostics } from "../lifecycle-diagnostics";
 import { runManagedProcessAction } from "../managed-post-start";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "../managed-runtime-state";
 import { createReliabilityState, type ReliabilityState } from "../reliability-contract";
-import { readReliabilityOperation } from "../reliability-operation-store";
+import { ReliabilityJournalError, readReliabilityOperation } from "../reliability-operation-store";
 import { resolveWorkspaceRuntimeForReport } from "../workspace-runtime";
 
 const repoPath = "/repo/trees/feature";
@@ -749,7 +752,7 @@ describe("collectManagedRuntimeStatus", () => {
   it("reports durable lifecycle intent and a runnable recovery for a parked environment", () => {
     setupManagedRuntime({
       containers: [container("postgres")],
-      runtimeState: state({ status: "degraded" }),
+      runtimeState: state(),
       reliability: {
         ...createReliabilityState("environment-feature", 1),
         desired: "parked-for-capacity",
@@ -927,6 +930,40 @@ describe("collectManagedRuntimeStatus", () => {
     });
 
     expect(result.reliability?.attention).toBeUndefined();
+  });
+
+  it.each([
+    [
+      new ReliabilityJournalError("journal-writer-newer", null, "private detail"),
+      "journal-writer-newer",
+    ],
+    [new SyntaxError("private detail"), "journal-unreadable"],
+  ])("does not report ready after a journal read failure", (error, cause) => {
+    setupManagedRuntime({
+      containers: [
+        container("app", { mountRepo: true }),
+        container("postgres"),
+        container("litellm"),
+      ],
+      runtimeState: state(),
+      routes: [{ name: "chat", repoPath, workspace }],
+      processStatuses: { chat: "running", "local-mcp": "stopped" },
+    });
+    const options = {
+      repoPath,
+      workspace,
+      config: managedConfig(),
+      profile: "ai",
+      resolvedProfile: { apps: ["chat"], devcontainerServices: ["litellm"], processes: ["chat"] },
+    };
+    expect(collectManagedRuntimeStatus(options).status).toBe("ready");
+    vi.mocked(readReliabilityOperation).mockImplementation(() => {
+      throw error;
+    });
+    const result = collectManagedRuntimeStatus(options);
+    expect(result.status).toBe("drifted");
+    expect(result.drift).toContain(cause);
+    expect(JSON.stringify(result)).not.toContain("private detail");
   });
 
   it("omits the lifecycle block when no provider or journal is available", () => {

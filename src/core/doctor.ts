@@ -4,6 +4,7 @@ import YAML from "yaml";
 import { type CapacityHistoryCause, CapacityHistoryError } from "./capacity-store";
 import { listContainers } from "./docker";
 import { listHostRoutes } from "./host-routes";
+import { managedRuntimeRecovery } from "./managed-runtime-status";
 import { createLifecycleCapacityStore } from "./reliability-operation-store";
 import { compareSemver, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 
@@ -512,6 +513,7 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
 
       if (repo.managedRuntime) {
         const managedRuntime = repo.managedRuntime;
+        const recovery = managedRuntimeRecovery(managedRuntime, repo.path);
         const repoArgument = `'${repo.path.replaceAll("'", `'\\''`)}'`;
         const variantOption =
           managedRuntime.activeVariant && managedRuntime.activeVariant !== "default"
@@ -554,8 +556,8 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
           suggestion:
             managedRuntime.mode === "legacy"
               ? undefined
-              : managedRuntime.status === "failed-transition"
-                ? `Inspect: devrouter status --repo ${repoArgument}; resolve the reported drift before retrying ensure.`
+              : recovery
+                ? recovery.join(" ")
                 : managedRuntime.status === "ready"
                   ? undefined
                   : `Run: devrouter ensure ${repoArgument}${variantOption}`,
@@ -578,10 +580,9 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
                     `unwound=${entry.destination} (source ${entry.source} inside ${entry.nestedWithin})`,
                 ),
               ].join("; "),
-              suggestion:
-                managedRuntime.status === "failed-transition"
-                  ? undefined
-                  : `Run: devrouter stop ${repoArgument} and then devrouter ensure ${repoArgument}${variantOption} to restart the exact container, which re-applies the nested mount.`,
+              suggestion: recovery
+                ? undefined
+                : `Run: devrouter stop ${repoArgument} and then devrouter ensure ${repoArgument}${variantOption} to restart the exact container, which re-applies the nested mount.`,
             });
           } else if (mountNesting.status === "unverified") {
             addCheck(checks, {
@@ -592,7 +593,9 @@ export async function buildDoctorReport(options: DoctorOptions = {}): Promise<Do
                 `container=${container}`,
                 `reason=${mountNesting.reason ?? "unknown"}`,
               ].join("; "),
-              suggestion: `Run: devrouter exec ${repoArgument} -- cat /proc/self/mountinfo to read the container's own mount table.`,
+              suggestion: recovery
+                ? undefined
+                : `Run: devrouter exec ${repoArgument} -- cat /proc/self/mountinfo to read the container's own mount table.`,
             });
           } else {
             addCheck(checks, {

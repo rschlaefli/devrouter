@@ -232,8 +232,15 @@ also reports the lifecycle intent, phase, capacity admission and charge, the
 corrective-action budget with its window start and per-unit action counts, and,
 when the recorded intent cannot progress on its own, a fixed attention reason
 with the supported recovery commands for that exact checkout. The block is
-read-only and is omitted when provider or journal evidence is unavailable, so a
-parked or waiting environment stays explainable without a live consumer session.
+read-only and is omitted when no provider or journal exists. A journal read
+failure adds a values-free history cause to runtime drift, so unreadable history
+cannot appear ready. A newer writer requires a matching or newer reader while
+preserving the journal; other unsafe or unreadable history requires inspection.
+Status and doctor prioritize that guidance, failed-transition inspection and
+recorded operation attention over ordinary startup or nested-mount restart
+advice. A live operation directs inspection and waiting for its owner. Ordinary
+readable-history drift retains normal ensure guidance. Runtime resource readiness
+and lifecycle operation completion remain separate observations.
 A start that admission refuses before any provider mutation leaves the journal
 recording `running` while no runtime exists. The status block names that as
 `start-refused` with the read-only `devrouter doctor` check and the consumer-side

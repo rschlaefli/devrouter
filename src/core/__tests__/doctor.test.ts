@@ -21,7 +21,8 @@ vi.mock("../status", () => ({
   collectRouterStatus: vi.fn(),
 }));
 
-vi.mock("../managed-runtime-status", () => ({
+vi.mock("../managed-runtime-status", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../managed-runtime-status")>()),
   collectManagedRuntimeStatus: vi.fn(),
 }));
 
@@ -633,6 +634,61 @@ profiles:
     expect(report.nextSteps.some((step) => /\bdevrouter (?:ensure|stop)\b/.test(step))).toBe(false);
     expect(report.nextSteps.some((step) => /\bdevrouter status --repo\b/.test(step))).toBe(true);
     expect(report.checks.find((check) => check.id === "repo.managed-runtime")?.level).toBe("error");
+  });
+
+  it.each<{ name: string; runtime: Partial<ManagedRuntimeStatus> }>([
+    { name: "unreadable history", runtime: { status: "drifted", drift: ["journal-writer-newer"] } },
+    {
+      name: "live owner",
+      runtime: {
+        reliability: {
+          desired: "running",
+          phase: "stable",
+          admission: "not-applicable",
+          chargeHeld: false,
+          incident: null,
+          operation: {
+            operationId: "active",
+            phase: "running",
+            outcome: null,
+            reason: null,
+            exitCode: null,
+            kind: "exec",
+            drained: false,
+          },
+        },
+      },
+    },
+  ])("keeps combined $name advice read-only even with an unwound mount", async ({ runtime }) => {
+    writeRepoFiles({
+      composeEnv: "      POSTGRES_HOST_AUTH_METHOD: trust",
+      managedProfiles: `managedRuntime:
+  devcontainer:
+    baseServices:
+      - postgres
+    profileServices: []
+  processes: []
+`,
+    });
+    vi.mocked(collectManagedRuntimeStatus).mockReturnValue(
+      makeManagedRuntimeStatus({
+        ...runtime,
+        mountNesting: {
+          status: "unwound",
+          checked: [],
+          unwound: [{ destination: "/workspace/deps", source: "deps", nestedWithin: "/workspace" }],
+        },
+      }),
+    );
+    const actualStatus = await vi.importActual<typeof import("../status")>("../status");
+    const status = await actualStatus.collectRouterStatus(tmpDir);
+    expect(status.repo?.valid, status.repo?.error).toBe(true);
+    vi.mocked(collectRouterStatus).mockResolvedValue(status);
+    const report = await buildDoctorReport({ repo: tmpDir });
+    expect(report.nextSteps.some((step) => /\bdevrouter (?:ensure|stop|exec)\b/.test(step))).toBe(
+      false,
+    );
+    expect(report.nextSteps.some((step) => /\bdevrouter status --repo\b/.test(step))).toBe(true);
   });
 
   it.each([

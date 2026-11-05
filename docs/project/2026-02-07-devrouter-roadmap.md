@@ -34,18 +34,23 @@ The failed-transition guidance correction is merged through
 [PR #178](https://github.com/rschlaefli/devrouter/pull/178) at
 `d68891fd602b0e0a1bac9d568f80e43db659fad3`, with complete tested-tree equality
 and passing [merged-main CI](https://github.com/rschlaefli/devrouter/actions/runs/41993417620).
-It is unreleased. The recommended next finite batch ships this correction as
-0.6.7 first, then qualifies the broader existing recovery-state advice matrix in
-a separate source/draft package. The user-set goal now drives concrete 0.6.7
-preparation through [draft PR #179](https://github.com/rschlaefli/devrouter/pull/179).
-Its remaining release effects and later parity implementation require named
-authority. The earlier realignment itself changed documents only.
+It is released in [0.6.7](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.7)
+through [PR #179](https://github.com/rschlaefli/devrouter/pull/179), merged at
+`f1e688d687f81edb18d1660a4e32b732fdd17f3e`. Merged-main and publication CI
+passed; registry integrity and every shipped member match the held package.
+Local installation is held because the named consumer-owner routes are unavailable
+and participating-client compatibility remains unconfirmed. No owner notice or
+receiving recovery is claimed.
 
-The acceptance roadmap owns the batch, current goal brief and consumer-selection
-gate. The user-set native goal is active, with delivery effects still awaiting named
-authority. The [0.6.7 preparation plan](./2026-11-05-release-0.6.7-plan.md) owns
-the reviewable candidate. A further receiving consumer journey has
-no selected producer; existing owners and consumed runtime limits remain intact.
+The approved [recovery guidance matrix](./2026-11-05-recovery-guidance-parity-plan.md)
+is now the independent source package in `trees/rs/recovery-guidance-parity`.
+It corrects demonstrated report contradictions and qualifies eight bounded state
+families through actual packed public commands. Its terminal is reviewed,
+CI-green draft delivery; ready, merge and release are excluded. The existing
+native goal remains blocked because its resume control is user-only; actual
+human approval authorizes the source batch through available tools. The
+acceptance roadmap retains the broader goal and consumer-selection gate.
+A further receiving journey has no selected producing owner.
 The first accepted 0.6.4 journey stays accepted, while current-resource health and
 later-version consumer acceptance remain unproven. Retained maintenance/reset
 keeps its separate capability and authority prerequisites. Shared tooling and
