@@ -62,8 +62,11 @@ existing owners. Preview/cloud and disk reclamation are independent work.
 
 **Recommendation:** deliver 0.6.7 first, then complete the separate parity source
 package. A parity blocker must not hold the already-qualified patch. This is
-one proposed conditional approval envelope, with distinct delivery boundaries;
-it is not approval to begin either package. The combined-before-release option
+one conditional delivery proposal with distinct package boundaries. The user-set
+active goal now authorizes concrete 0.6.7 preparation and standing source/draft
+delivery under its [preparation plan](./2026-11-05-release-0.6.7-plan.md). This
+work is present in [draft PR #179](https://github.com/rschlaefli/devrouter/pull/179).
+The remaining release effects and the later parity implementation are still held. The combined-before-release option
 would delay a proven correction behind defects not yet demonstrated.
 
 1. **Patch delivery:** derive the release plan from the completed [0.6.6 release
@@ -89,9 +92,10 @@ would delay a proven correction behind defects not yet demonstrated.
    passing exact-source CI. Ready/merge or publication of this later package is
    outside the proposed batch.
 
-The new authority must explicitly name 0.6.7 preparation, release-PR ready/merge,
-publication, conditional local installation and one-time existing-owner notices,
-plus the separate parity source/draft delivery. Bind dependent delivery to the
+The remaining named authority must cover release-PR ready/merge, publication,
+conditional local installation, bounded pre-install compatibility requests and
+one-time existing-owner notices, plus the separate parity source/draft delivery.
+Preparation and ordinary task-branch/draft publication do not need reapproval. Bind dependent delivery to the
 actual reviewed candidate PR/head when created. A changed candidate repeats only
 invalidated checks; materially different effects return to a user decision.
 Declining delivery leaves the verified correction merged and unreleased; parity
@@ -166,8 +170,9 @@ Make ordinary managed Devrouter sessions usable through bounded preserving
 recovery and guidance that the packed public CLI can actually follow. Follow this
 roadmap: deliver the reviewed correction as 0.6.7 first, then qualify the finite
 recovery-state matrix and its demonstrated corrections through a reviewed draft.
-Execute that proposed batch only after its named delivery/source approval; its
-terminal is separate from whole-outcome acceptance. The broader outcome still
+Continue concrete release preparation under the adopted goal. Execute its
+remaining release effects and the parity implementation only after their named
+approval; this batch terminal is separate from whole-outcome acceptance. The broader outcome still
 requires a selected existing consumer owner's useful-work, preservation, neighbour
 and stopped-terminal proof. Preserve the accepted 0.6.4 journey and keep retained
 maintenance separate. The user-set native goal is active; this document does not authorize its gated effects.

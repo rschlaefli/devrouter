@@ -36,8 +36,10 @@ The failed-transition guidance correction is merged through
 and passing [merged-main CI](https://github.com/rschlaefli/devrouter/actions/runs/41993417620).
 It is unreleased. The recommended next finite batch ships this correction as
 0.6.7 first, then qualifies the broader existing recovery-state advice matrix in
-a separate source/draft package. This requires named execution/delivery approval;
-the realignment itself changes documents only.
+a separate source/draft package. The user-set goal now drives concrete 0.6.7
+preparation through [draft PR #179](https://github.com/rschlaefli/devrouter/pull/179).
+Its remaining release effects and later parity implementation require named
+authority. The earlier realignment itself changed documents only.
 
 The acceptance roadmap owns the batch, current goal brief and consumer-selection
 gate. The user-set native goal is active, with delivery effects still awaiting named
