@@ -165,6 +165,47 @@ describe("collectRouterStatus", () => {
     expect(argv).toEqual(["stop", checkout, "ensure", checkout]);
   });
 
+  it.each([
+    false,
+    true,
+  ])("keeps failed-transition advice non-starting with unwound mounts=%s", async (unwound) => {
+    const checkout = path.join(repoPath, "pilot's checkout $HOME");
+    fs.mkdirSync(checkout);
+    fs.writeFileSync(path.join(checkout, ".devrouter.yml"), "version: 1\napps: []\n");
+    vi.mocked(collectManagedRuntimeStatus).mockReturnValue({
+      ...managedStatus,
+      status: "failed-transition",
+      ...(unwound
+        ? {
+            mountNesting: {
+              status: "unwound" as const,
+              checked: [],
+              unwound: [
+                { destination: "/workspace/deps", source: "deps", nestedWithin: "/workspace" },
+              ],
+            },
+          }
+        : {}),
+    });
+
+    const status = await collectRouterStatus(checkout);
+    expect(
+      status.insights.nextSteps.some((step) => /\bdevrouter (?:ensure|stop)\b/.test(step)),
+    ).toBe(false);
+    const command = status.insights.nextSteps
+      .map((step) => step.match(/\bdevrouter status --repo .*?(?=;|$)/)?.[0])
+      .find(Boolean);
+    expect(command).toBeDefined();
+    const argv = execFileSync(
+      "/bin/sh",
+      ["-c", `devrouter() { printf '%s\\0' "$@"; }\n${command}`],
+      { encoding: "utf8" },
+    )
+      .split("\0")
+      .slice(0, -1);
+    expect(argv).toEqual(["status", "--repo", checkout]);
+  });
+
   it("retains app startup guidance for a legacy repository", async () => {
     vi.mocked(loadRuntimeConfig).mockReturnValue({
       config: {

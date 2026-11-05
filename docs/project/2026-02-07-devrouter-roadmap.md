@@ -23,10 +23,19 @@ The managed recovery-command rendering correction is merged in
 [PR #176](https://github.com/rschlaefli/devrouter/pull/176) at `b61a8fae`, with
 complete tested-tree equality and passing merged-main CI. Argument regressions
 protect literal checkout paths, canonical executable names and existing variants.
-The [0.6.6 release batch](./2026-11-02-release-0.6.6-plan.md) now owns packed
-qualification, publication and conditional local adoption; that delivery is pending.
-Broader recovery-guidance eligibility remains open. Retained maintenance/reset
-stays in its separate lane with independent authority and acceptance.
+[0.6.6](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.6) is published
+through [PR #177](https://github.com/rschlaefli/devrouter/pull/177) at `5931c00f`,
+with complete tested-tree equality and passing candidate, merged-main and release
+CI. Registry integrity and all 108 package files match the held tested bytes and
+modes. The [release plan](./2026-11-02-release-0.6.6-plan.md) records its scope;
+receiving-host adoption and consumer recovery retain separate acceptance.
+
+The current bounded source batch makes failed-transition advice consistent
+across status and doctor, including their combined output and unwound-mount
+restart suggestions. It directs inspection before another managed lifecycle
+attempt. Broader recovery-guidance eligibility remains open. Retained
+maintenance/reset stays in its separate lane with independent authority and
+acceptance.
 
 [0.6.5](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.5) shipped the
 initial managed-startup guidance correction through

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManagedRuntimeStatus, RouterStatus } from "../../types";
 import { CapacityHistoryError } from "../capacity-store";
 import { buildDoctorReport } from "../doctor";
+import { collectManagedRuntimeStatus } from "../managed-runtime-status";
 import { createLifecycleCapacityStore } from "../reliability-operation-store";
 import { collectRouterStatus } from "../status";
 import { getTLSHostCoverage } from "../tls";
@@ -20,6 +21,10 @@ vi.mock("../status", () => ({
   collectRouterStatus: vi.fn(),
 }));
 
+vi.mock("../managed-runtime-status", () => ({
+  collectManagedRuntimeStatus: vi.fn(),
+}));
+
 vi.mock("../network-diagnostics", () => ({
   inspectNetworkCapacity: vi.fn(() => ({})),
   networkCapacityCheck: vi.fn(() => ({
@@ -30,9 +35,14 @@ vi.mock("../network-diagnostics", () => ({
 }));
 
 vi.mock("../router", () => ({
+  areTLSCertsPresent: vi.fn(() => false),
+  DEVNET_NAME: "devnet",
   DEVROUTER_HOME: "/tmp/devrouter-doctor-test-home",
+  getActiveTcpProtocols: vi.fn(() => []),
   getRouterFileLayout: vi.fn(() => ({ required: [], missing: [] })),
+  isTLSConfigured: vi.fn(() => false),
   isTLSEnabled: vi.fn(() => false),
+  ROUTER_CONTAINER_NAME: "devrouter-traefik",
   TCP_PROTOCOL_REGISTRY: {
     postgres: { port: 5432, entrypoint: "postgres" },
     redis: { port: 6379, entrypoint: "redis" },
@@ -42,7 +52,10 @@ vi.mock("../router", () => ({
 }));
 
 vi.mock("../docker", () => ({
+  findContainerByName: vi.fn(async () => undefined),
+  getCurrentDockerContext: vi.fn(() => "default"),
   listContainers: vi.fn(async () => []),
+  networkExists: vi.fn(async () => true),
 }));
 
 vi.mock("../host-routes", () => ({
@@ -578,6 +591,48 @@ profiles:
       level: "ok",
       summary: "Managed runtime profile 'ai' is ready.",
     });
+  });
+
+  it.each([
+    false,
+    true,
+  ])("keeps combined failed-transition advice non-starting with unwound mounts=%s", async (unwound) => {
+    writeRepoFiles({
+      composeEnv: "      POSTGRES_HOST_AUTH_METHOD: trust",
+      managedProfiles: `managedRuntime:
+  devcontainer:
+    baseServices:
+      - postgres
+    profileServices: []
+  processes: []
+`,
+    });
+    vi.mocked(collectManagedRuntimeStatus).mockReturnValue(
+      makeManagedRuntimeStatus({
+        status: "failed-transition",
+        ...(unwound
+          ? {
+              mountNesting: {
+                status: "unwound" as const,
+                checked: [],
+                unwound: [
+                  { destination: "/workspace/deps", source: "deps", nestedWithin: "/workspace" },
+                ],
+              },
+            }
+          : {}),
+      }),
+    );
+    const actualStatus = await vi.importActual<typeof import("../status")>("../status");
+    const status = await actualStatus.collectRouterStatus(tmpDir);
+    expect(status.repo?.valid, status.repo?.error).toBe(true);
+    expect(status.repo?.managedRuntime?.status).toBe("failed-transition");
+    vi.mocked(collectRouterStatus).mockResolvedValue(status);
+
+    const report = await buildDoctorReport({ repo: tmpDir });
+    expect(report.nextSteps.some((step) => /\bdevrouter (?:ensure|stop)\b/.test(step))).toBe(false);
+    expect(report.nextSteps.some((step) => /\bdevrouter status --repo\b/.test(step))).toBe(true);
+    expect(report.checks.find((check) => check.id === "repo.managed-runtime")?.level).toBe("error");
   });
 
   it.each([
