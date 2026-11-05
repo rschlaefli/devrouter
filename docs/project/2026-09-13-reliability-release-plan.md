@@ -1,6 +1,184 @@
 # Reliable managed development environments
 
-## Current direction and acceptance — 2026-11-02
+## Current outcome, route and authority — 2026-11-05
+
+**Outcome:** an agent asks for an ordinary managed environment once, then does
+useful application work. Supported failures recover within a persistent budget
+while preserving data and neighbours. A refused or unknown transition identifies
+its cause and smallest validated next action. Universal availability is not a
+claim; unknown ownership, live workers and surviving resources remain fail-closed.
+
+**Proven:** the first recorded ordinary retained consumer journey on 0.6.4 remains
+accepted for its exact combination, including useful work, selected synthetic
+content, functional neighbour and both stops. It does not establish current
+resource/data health or later-version consumer acceptance. [0.6.6](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.6)
+is published; its release plan and exact package evidence remain reusable.
+
+The failed-transition guidance correction is now merged through
+[PR #178](https://github.com/rschlaefli/devrouter/pull/178) as
+`d68891fd602b0e0a1bac9d568f80e43db659fad3`. Its complete tree equals reviewed
+candidate `380983b9f1fbc80e61881ebaa8dba5b338e90651`.
+[Candidate CI](https://github.com/rschlaefli/devrouter/actions/runs/41533064606) and
+[merged-main CI](https://github.com/rschlaefli/devrouter/actions/runs/41993417620)
+passed on their first attempts. Actual status-to-doctor composition, with and
+without unwound mounts, no longer reintroduces an ordinary ensure or stop/ensure
+retry for a failed transition. The correction is **merged, unreleased**. It does
+not establish complete guidance/execution equivalence or consumer recovery.
+
+**Current authority:** the realignment request permits local document corrections
+and the required read-only consultation. The prior [PR #178](https://github.com/rschlaefli/devrouter/pull/178) ready/merge/verification
+batch is complete. It supplies no new release, install, runtime or messaging
+permission. Main owns these roadmap edits in `trees/rs/reliability-outcome-realignment`
+on current main `d68891fd`; existing consumer and maintenance owners remain.
+The user has now adopted the goal brief as an active native goal, preserving
+its "after approval" delivery condition. Candidate preparation is active under
+the [0.6.7 plan](./2026-11-05-release-0.6.7-plan.md); ready, merge, publication,
+installation and owner notices remain proposed effects awaiting named authority.
+
+The 0.6.7 preparation has passing native checks, build/package smoke, 109-member
+held-source correspondence, extracted metadata/prompt probes and actual-package
+0.6.7-writer/0.6.6-reader refusal qualification. Independent candidate review and
+draft CI remain pending. The official release and global selection remain 0.6.6.
+No consumer recovery or broader parity is inferred from this preparation.
+
+### Dependency-ordered remaining outcomes
+
+| Package and existing obligations | Outcome, evidence and owner | Dependency, authority and bounded recovery |
+| --- | --- | --- |
+| Patch delivery — W7/W8 distribution and adoption | Make the already-reviewed guidance fix available as proposed 0.6.7. Main owns exact source/release qualification, registry member proof, conditional local installation and accurate existing-owner notices. First useful result: agents can obtain the corrected official package. | New named delivery authority is required. Ship this correction independently of broader parity. Unknown publication/install outcome means inspect before any retry; no downgrade, journal rewrite or consumer launch. |
+| Recovery guidance parity — W1/W9 | For the eight existing state families below, compare the public command, native eligibility, returned result, composed advice and next allowed transition. Main owns a focused source package with actual packed-CLI evidence and only reproduced corrections. | Independent of maintenance and consumer availability. Proposed source-only execution ends in reviewed draft delivery and exact-source CI, or an explicit unclosed defect. A new schema, security/data contract or lifecycle relaxation holds its dependent work. |
+| Receiving consumer closure — W4/W5/W7/W8, RF08/RF11 | A selected existing owner supplies a current-package ordinary useful-work journey, preserving recovery, retained synthetic and neighbour functional oracles, and canonical stop. A distinct consumer or enforcing harness supplies broader portability evidence. | **Selection/authority gate:** no receiving owner is currently producing this evidence. Recommend the existing Control iOS lane as the next distinct consumer after its own source/CI and cached-data blockers are resolved. Selection and a bounded owner request remain proposed; no takeover or automatic pilot rerun. Preserve consumed limits. |
+| Interruption and portability — W2/W3b/W6a/W9, RF09/Q20 | Existing owners qualify the selected process/dependency loss, contention, capacity/parking and suspend transitions through the actual controller/harness and useful work. Reuse unchanged passing cells; short-suspend acceptance remains open. | No new live fault or sleep attempt follows from this realignment. Each new cell needs its exact caller/support combination, bounded effects and unconsumed authority. Long-suspend source evidence does not close short-suspend or exact-release acceptance. |
+| Retained maintenance — existing separate contract | Provider and consumer owners retain the full semantic probe, writer exclusion, phase receipts and restoration outcome in the [maintenance plan](https://github.com/rschlaefli/devrouter/blob/741ef0f99579f08d32b119f35fc7fcf2b45e8986/docs/project/2026-10-30-retained-maintenance-transition-plan.md). Its reviewed native transport experiment proves bytes/pipes only. | Full implementation remains conditional on the actual frozen probe/recipe, selected-endpoint isolation, durable history/dispatch protocol and version-matched engine semantics. No scaffolding-only package or permanently refusing command substitutes for the real caller. Ordinary preserving startup does not depend on this lane. |
+
+Current consumer blockers and authority locators are kept in the private
+realignment report. Owner reports are dated evidence, not fresh runtime probes.
+In particular, a consumer-side compatibility proposal can leave Devrouter's
+fixed-volume guard intact; it is not grounds for a provider rewrite. Shared
+routing, result classification, binding and CI/toolchain changes stay with their
+existing owners. Preview/cloud and disk reclamation are independent work.
+
+### Proposed finite autonomous batch
+
+**Recommendation:** deliver 0.6.7 first, then complete the separate parity source
+package. A parity blocker must not hold the already-qualified patch. This is
+one proposed conditional approval envelope, with distinct delivery boundaries;
+it is not approval to begin either package. The combined-before-release option
+would delay a proven correction behind defects not yet demonstrated.
+
+1. **Patch delivery:** derive the release plan from the completed [0.6.6 release
+   procedure](./2026-11-02-release-0.6.6-plan.md), prepare 0.6.7 metadata and its
+   adaptation prompt, run applicable native/package checks and actual packed
+   writer/official 0.6.6 reader compatibility proof, and complete release review.
+   Reuse [PR #178](https://github.com/rschlaefli/devrouter/pull/178)'s unchanged implementation review and regressions. Deliver the
+   exact held release candidate as a draft PR; after its gates pass, ready and
+   squash-merge that same candidate, verify merged tree/main CI, and publish
+   `v0.6.7` through the existing workflow. Verify registry integrity and every
+   package member against the held archive. Conditional exact local Volta install
+   additionally requires current participating-client compatibility and preserved
+   journal/receipt bytes; unknown compatibility holds only installation. Verify
+   selected/PATH executables. Send one factual release notice to each existing
+   available receiving owner, accurately stating whether local installation passed
+   or was held; never imply receiving adoption or recovery. No other-host install, new runtime or provider setup.
+2. **Parity source package:** use the current `status.ts`, `doctor.ts`, ensure/exec
+   command handlers and `scripts/qualify-lifecycle.ts` plus their existing tests.
+   Record each state family's existing evidence before adding tests. Extend the
+   actual packed public caller seam only for a missing observable oracle; correct
+   demonstrated advice defects without adding a general action framework. Finish
+   required source checks, integrated review and a coherent draft PR to main with
+   passing exact-source CI. Ready/merge or publication of this later package is
+   outside the proposed batch.
+
+The new authority must explicitly name 0.6.7 preparation, release-PR ready/merge,
+publication, conditional local installation and one-time existing-owner notices,
+plus the separate parity source/draft delivery. Bind dependent delivery to the
+actual reviewed candidate PR/head when created. A changed candidate repeats only
+invalidated checks; materially different effects return to a user decision.
+Declining delivery leaves the verified correction merged and unreleased; parity
+can be selected independently without consumer mutation.
+
+Proposed aggregate bounds: two named packages, no paid model/API evaluation or
+live provider fixture, one initial and one focused correction per applicable review,
+and at most one diagnosed CI retry per stage/signature. The observed main run took
+about six minutes; a candidate/main/release sequence adds three CI stages before
+any justified retry. Local checks, subscription review quota and registry work add
+variable cost; no monetary estimate is established. Propose a four-hour execution
+limit for the whole batch, including waits, with a checkpoint rather than another
+attempt when exhausted. Each parity defect gets one reproducer and at most two
+focused source corrections; unresolved cases stay explicitly open. An uncertain
+publish/install is observed and reconciled rather than blindly replayed.
+
+**Batch terminal:** verified 0.6.7 registry package and conditional local install
+or a specific compatibility hold, accurate available-owner notices or explicit
+unavailability, and the separate reviewed/CI-green parity draft. Any failed branch
+keeps its unmet outcome; independent authorized work may continue. This terminal
+is not the broader consumer or reliability acceptance condition.
+
+### Parity cell oracle and evidence reuse
+
+Each cell records exact source/package, starting state, public caller/options,
+native eligibility branch, structured outcome, actual composed status/doctor
+advice, allowed effects and resulting next transition. In an isolated home with
+closed synthetic providers, execute the advised command through the packed
+public CLI. It must reach the predicted transition, inspection result or truthful
+bounded refusal. Preparation must match eligibility; duplicate dispatch, erased
+or rewritten receipts and guard relaxation cannot make it pass. An inspection-only action cannot qualify
+application readiness. Provider calls and retained state are observed at the
+actual integration boundary. A schema-valid summary alone is insufficient.
+
+| Existing state family | Reusable evidence and remaining acceptance |
+| --- | --- |
+| Ready / stopped | Existing packed non-degraded repair refusal and ordinary-ensure controls; composed advice-to-next-transition proof remains unclaimed. |
+| Failed transition, with/without unwound mount | [PR #178](https://github.com/rschlaefli/devrouter/pull/178)'s actual status/doctor regressions pass. Reuse them; public packed advice execution is the additional boundary if missing. |
+| Known interruption / unknown completion | Existing drainage and no-replay qualification; join emitted advice and its next allowed transition without rearming unknown work. |
+| Live worker / busy exec | Existing waiting and worker-loss serialization cases; verify advice preserves the live owner and never redispatches uncertain commands. |
+| Newer-writer refusal | Actual packed reader/writer refusal and unchanged journal/receipt evidence; verify advice selects a compatible reader rather than repair/replay. |
+| Pre-registration host-port conflict | Existing admission/conflict and stop-recovery regressions; test the actual returned result, composed advice and supported stopping/retry boundary. |
+| Unknown ownership | Existing ownership refusal tests are controls, not guidance parity. The packed public result must retain the refusal and name missing proof. |
+| Surviving resources | Existing exact-stop/population tests are controls. Advice must retain resource/worker checks and permit only the proven next action. |
+
+Completion requires every named cell's exact oracle, not merely the existence of
+older tests. A reproduced defect may close only after its correction and checks;
+an unproved or unresolved cell remains open and blocks claiming full parity.
+
+### Carry-forward and final acceptance
+
+[PR #178](https://github.com/rschlaefli/devrouter/pull/178) closes only its narrow failed-transition advice defect. The first ordinary
+0.6.4 journey and 0.6.6 delivery retain their exact accepted boundaries. Existing
+W0–W9, S1–S8, M0–M3, Q01–Q36 and RF obligations keep their recorded dispositions;
+this realignment neither reopens delivered work nor closes unresolved rows by
+association. The tables above map the active dependencies without re-auditing or
+recounting all historical evidence.
+
+The whole outcome completes only when the selected supported ordinary journeys
+show useful application results and relevant preserving recovery, retained
+synthetic content, functional neighbour preservation, truthful interruption/
+refusal behavior and canonical terminal stop on the declared support combinations.
+A second distinct consumer/harness is required for a broader portability claim.
+Selected outstanding fault cohorts keep their own explicit acceptance. Publication,
+installation, source counts, transport mocks and truthful refusal alone cannot
+complete this outcome. There is no fleet-wide success percentage or universal
+never-block guarantee supported by the evidence.
+
+### Adopted goal brief — delivery effects still require named approval
+
+Make ordinary managed Devrouter sessions usable through bounded preserving
+recovery and guidance that the packed public CLI can actually follow. Follow this
+roadmap: deliver the reviewed correction as 0.6.7 first, then qualify the finite
+recovery-state matrix and its demonstrated corrections through a reviewed draft.
+Execute that proposed batch only after its named delivery/source approval; its
+terminal is separate from whole-outcome acceptance. The broader outcome still
+requires a selected existing consumer owner's useful-work, preservation, neighbour
+and stopped-terminal proof. Preserve the accepted 0.6.4 journey and keep retained
+maintenance separate. The user-set native goal is active; this document does not authorize its gated effects.
+
+## Historical direction and evidence — through 2026-11-02
+
+The dated records below retain their producing evidence and approvals. Their
+former current/next instructions, active-goal statements and first-consumer
+milestone are superseded by the 2026-11-05 status and authority above.
+
+### Recorded direction and acceptance — 2026-11-02
 
 **Outcome: an agent asks for an environment once, then works.** Devrouter should
 reach verified application readiness through bounded, preserving recovery. When
@@ -56,8 +234,9 @@ stop/ensure retry. Four native regressions reproduce those branches through the
 actual status collector and combined doctor output; all 35 focused cases pass
 after the correction. Lifecycle guards and non-failed startup/mount behavior are
 unchanged. Required native/build/package checks pass, with 3,530 native passes
-and 13 platform skips. Integrated review and draft CI remain pending. The combined
-regression uses actual status-produced advice; empty insight mocks missed this
+and 13 platform skips. Integrated review and candidate CI subsequently passed;
+the 2026-11-05 section records its verified merge. The combined regression uses
+actual status-produced advice; empty insight mocks missed this
 conflict. No runtime is needed for this diagnostic-only correction. Broader
 execution-eligibility equivalence remains open.
 

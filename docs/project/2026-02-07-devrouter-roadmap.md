@@ -4,7 +4,7 @@ Status: active. This record contains open work and quality gates, not current pr
 
 Use the [documentation map](../README.md) for supported behavior, [AGENTS.md](../../AGENTS.md) for repository constraints, and the [decision records](../adr/) for durable rationale.
 
-## Next package
+## Current direction — 2026-11-05
 
 The [reliability acceptance roadmap](./2026-09-13-reliability-release-plan.md)
 owns current priorities, delivery layers and the remaining integrated canary,
@@ -30,12 +30,24 @@ CI. Registry integrity and all 108 package files match the held tested bytes and
 modes. The [release plan](./2026-11-02-release-0.6.6-plan.md) records its scope;
 receiving-host adoption and consumer recovery retain separate acceptance.
 
-The current bounded source batch makes failed-transition advice consistent
-across status and doctor, including their combined output and unwound-mount
-restart suggestions. It directs inspection before another managed lifecycle
-attempt. Broader recovery-guidance eligibility remains open. Retained
-maintenance/reset stays in its separate lane with independent authority and
-acceptance.
+The failed-transition guidance correction is merged through
+[PR #178](https://github.com/rschlaefli/devrouter/pull/178) at
+`d68891fd602b0e0a1bac9d568f80e43db659fad3`, with complete tested-tree equality
+and passing [merged-main CI](https://github.com/rschlaefli/devrouter/actions/runs/41993417620).
+It is unreleased. The recommended next finite batch ships this correction as
+0.6.7 first, then qualifies the broader existing recovery-state advice matrix in
+a separate source/draft package. This requires named execution/delivery approval;
+the realignment itself changes documents only.
+
+The acceptance roadmap owns the batch, current goal brief and consumer-selection
+gate. The user-set native goal is active, with delivery effects still awaiting named
+authority. The [0.6.7 preparation plan](./2026-11-05-release-0.6.7-plan.md) owns
+the reviewable candidate. A further receiving consumer journey has
+no selected producer; existing owners and consumed runtime limits remain intact.
+The first accepted 0.6.4 journey stays accepted, while current-resource health and
+later-version consumer acceptance remain unproven. Retained maintenance/reset
+keeps its separate capability and authority prerequisites. Shared tooling and
+preview/cloud work remain independently owned.
 
 [0.6.5](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.5) shipped the
 initial managed-startup guidance correction through
