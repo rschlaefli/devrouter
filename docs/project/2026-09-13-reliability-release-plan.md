@@ -22,31 +22,36 @@ candidate `380983b9f1fbc80e61881ebaa8dba5b338e90651`.
 [merged-main CI](https://github.com/rschlaefli/devrouter/actions/runs/41993417620)
 passed on their first attempts. Actual status-to-doctor composition, with and
 without unwound mounts, no longer reintroduces an ordinary ensure or stop/ensure
-retry for a failed transition. The correction is **merged, unreleased**. It does
-not establish complete guidance/execution equivalence or consumer recovery.
+retry for a failed transition. It is **released in 0.6.7**, through
+[PR #179](https://github.com/rschlaefli/devrouter/pull/179), merge
+`f1e688d687f81edb18d1660a4e32b732fdd17f3e`. Complete merged-tree equality,
+[main CI](https://github.com/rschlaefli/devrouter/actions/runs/42034771310),
+[publication CI](https://github.com/rschlaefli/devrouter/actions/runs/42036063083),
+registry integrity and every shipped package member are verified. Consumer
+recovery and complete guidance parity remain distinct acceptance boundaries.
 
-**Current authority:** the realignment request permits local document corrections
-and the required read-only consultation. The prior [PR #178](https://github.com/rschlaefli/devrouter/pull/178) ready/merge/verification
-batch is complete. It supplies no new release, install, runtime or messaging
-permission. Main owns these roadmap edits in `trees/rs/reliability-outcome-realignment`
-on current main `d68891fd`; existing consumer and maintenance owners remain.
-The user has now adopted the goal brief as an active native goal, preserving
-its "after approval" delivery condition. Candidate preparation is active under
-the [0.6.7 plan](./2026-11-05-release-0.6.7-plan.md); ready, merge, publication,
-installation and owner notices remain proposed effects awaiting named authority.
+**Current authority:** the human approved ready/merge/release of PR #179,
+conditional exact local adoption and existing-owner notices, then the separate
+eight-state source package through reviewed, CI-green draft delivery. Publication
+is complete. All three named owner routes were unavailable, so compatibility
+requests, installation and notices are held under the approved condition. The
+selected local CLI remains 0.6.6; no lifecycle write, provider or consumer change
+follows from publication. The [release plan](./2026-11-05-release-0.6.7-plan.md)
+retains its exact evidence.
 
-The 0.6.7 preparation has passing native checks, build/package smoke, 109-member
-held-source correspondence, extracted metadata/prompt probes and actual-package
-0.6.7-writer/0.6.6-reader refusal qualification. Independent candidate review and
-draft CI remain pending. The official release and global selection remain 0.6.6.
-No consumer recovery or broader parity is inferred from this preparation.
+Main owns the [matrix package](./2026-11-05-recovery-guidance-parity-plan.md) in
+`trees/rs/recovery-guidance-parity`, based on released main `f1e688d6`. Its ready,
+merge and release are excluded. The existing native goal is blocked and supports
+only user-controlled resume; approval authorizes available source tools without
+a replacement goal or a claimed native resume. Existing consumer and maintenance
+owners retain their work. No later-version consumer recovery is inferred.
 
 ### Dependency-ordered remaining outcomes
 
 | Package and existing obligations | Outcome, evidence and owner | Dependency, authority and bounded recovery |
 | --- | --- | --- |
-| Patch delivery — W7/W8 distribution and adoption | Make the already-reviewed guidance fix available as proposed 0.6.7. Main owns exact source/release qualification, registry member proof, conditional local installation and accurate existing-owner notices. First useful result: agents can obtain the corrected official package. | New named delivery authority is required. Ship this correction independently of broader parity. Unknown publication/install outcome means inspect before any retry; no downgrade, journal rewrite or consumer launch. |
-| Recovery guidance parity — W1/W9 | For the eight existing state families below, compare the public command, native eligibility, returned result, composed advice and next allowed transition. Main owns a focused source package with actual packed-CLI evidence and only reproduced corrections. | Independent of maintenance and consumer availability. Proposed source-only execution ends in reviewed draft delivery and exact-source CI, or an explicit unclosed defect. A new schema, security/data contract or lifecycle relaxation holds its dependent work. |
+| Patch delivery — W7/W8 distribution and adoption | The reviewed guidance fix is available as official 0.6.7. Main owns exact source/release qualification, registry member proof, conditional local installation and accurate existing-owner notices. First useful result: agents can obtain the corrected official package. | Approved publication is complete; participating-client compatibility holds installation and unavailable routes hold notices independently of parity. Unknown publication/install outcome means inspect before any retry; no downgrade, journal rewrite or consumer launch. |
+| Recovery guidance parity — W1/W9 | For the eight existing state families below, compare the public command, native eligibility, returned result, composed advice and next allowed transition. Main owns [draft #180](https://github.com/rschlaefli/devrouter/pull/180) with actual packed-CLI evidence and reproduced corrections; its latest-head gates remain explicit. | Independent of maintenance and consumer availability. Approved source execution ends in reviewed draft delivery and exact-source CI, or an explicit unclosed defect. A new schema, security/data contract or lifecycle relaxation holds its dependent work. |
 | Receiving consumer closure — W4/W5/W7/W8, RF08/RF11 | A selected existing owner supplies a current-package ordinary useful-work journey, preserving recovery, retained synthetic and neighbour functional oracles, and canonical stop. A distinct consumer or enforcing harness supplies broader portability evidence. | **Selection/authority gate:** no receiving owner is currently producing this evidence. Recommend the existing Control iOS lane as the next distinct consumer after its own source/CI and cached-data blockers are resolved. Selection and a bounded owner request remain proposed; no takeover or automatic pilot rerun. Preserve consumed limits. |
 | Interruption and portability — W2/W3b/W6a/W9, RF09/Q20 | Existing owners qualify the selected process/dependency loss, contention, capacity/parking and suspend transitions through the actual controller/harness and useful work. Reuse unchanged passing cells; short-suspend acceptance remains open. | No new live fault or sleep attempt follows from this realignment. Each new cell needs its exact caller/support combination, bounded effects and unconsumed authority. Long-suspend source evidence does not close short-suspend or exact-release acceptance. |
 | Retained maintenance — existing separate contract | Provider and consumer owners retain the full semantic probe, writer exclusion, phase receipts and restoration outcome in the [maintenance plan](https://github.com/rschlaefli/devrouter/blob/741ef0f99579f08d32b119f35fc7fcf2b45e8986/docs/project/2026-10-30-retained-maintenance-transition-plan.md). Its reviewed native transport experiment proves bytes/pipes only. | Full implementation remains conditional on the actual frozen probe/recipe, selected-endpoint isolation, durable history/dispatch protocol and version-matched engine semantics. No scaffolding-only package or permanently refusing command substitutes for the real caller. Ordinary preserving startup does not depend on this lane. |
@@ -58,16 +63,13 @@ fixed-volume guard intact; it is not grounds for a provider rewrite. Shared
 routing, result classification, binding and CI/toolchain changes stay with their
 existing owners. Preview/cloud and disk reclamation are independent work.
 
-### Proposed finite autonomous batch
+### Approved finite autonomous batch
 
-**Recommendation:** deliver 0.6.7 first, then complete the separate parity source
-package. A parity blocker must not hold the already-qualified patch. This is
-one conditional delivery proposal with distinct package boundaries. The user-set
-active goal now authorizes concrete 0.6.7 preparation and standing source/draft
-delivery under its [preparation plan](./2026-11-05-release-0.6.7-plan.md). This
-work is present in [draft PR #179](https://github.com/rschlaefli/devrouter/pull/179).
-The remaining release effects and the later parity implementation are still held. The combined-before-release option
-would delay a proven correction behind defects not yet demonstrated.
+The human approved release-first delivery and this separate matrix source
+package. Publication is complete and adoption is conditionally held as recorded
+above. Continue the matrix without another generic approval; a matrix blocker
+cannot hold the already-published correction. Existing aggregate and correction
+bounds remain in force.
 
 1. **Patch delivery:** derive the release plan from the completed [0.6.6 release
    procedure](./2026-11-02-release-0.6.6-plan.md), prepare 0.6.7 metadata and its
@@ -92,21 +94,17 @@ would delay a proven correction behind defects not yet demonstrated.
    passing exact-source CI. Ready/merge or publication of this later package is
    outside the proposed batch.
 
-The remaining named authority must cover release-PR ready/merge, publication,
-conditional local installation, bounded pre-install compatibility requests and
-one-time existing-owner notices, plus the separate parity source/draft delivery.
-Preparation and ordinary task-branch/draft publication do not need reapproval. Bind dependent delivery to the
-actual reviewed candidate PR/head when created. A changed candidate repeats only
-invalidated checks; materially different effects return to a user decision.
-Declining delivery leaves the verified correction merged and unreleased; parity
-can be selected independently without consumer mutation.
+The approved sequence covers the effects above through matrix draft delivery.
+A new matrix contract or exhausted correction bound holds its dependent work.
+Consumer selection and live attempts remain separate decisions; this source
+package grants no takeover, replay, reset or provider change.
 
-Proposed aggregate bounds: two named packages, no paid model/API evaluation or
+Approved aggregate bounds: two named packages, no paid model/API evaluation or
 live provider fixture, one initial and one focused correction per applicable review,
 and at most one diagnosed CI retry per stage/signature. The observed main run took
 about six minutes; a candidate/main/release sequence adds three CI stages before
 any justified retry. Local checks, subscription review quota and registry work add
-variable cost; no monetary estimate is established. Propose a four-hour execution
+variable cost; no monetary estimate is established. Use the four-hour execution
 limit for the whole batch, including waits, with a checkpoint rather than another
 attempt when exhausted. Each parity defect gets one reproducer and at most two
 focused source corrections; unresolved cases stay explicitly open. An uncertain
@@ -141,6 +139,13 @@ actual integration boundary. A schema-valid summary alone is insufficient.
 | Unknown ownership | Existing ownership refusal tests are controls, not guidance parity. The packed public result must retain the refusal and name missing proof. |
 | Surviving resources | Existing exact-stop/population tests are controls. Advice must retain resource/worker checks and permit only the proven next action. |
 
+The first complete candidate `fb6d82c0` passes all 13 concrete cells and original
+controls in [CI](https://github.com/rschlaefli/devrouter/actions/runs/42044812718).
+Its clean tested merge `56da8a3ec7f3ee4d040cc6f93ea1109042b18565` has an identical
+complete tree. The [matrix plan](./2026-11-05-recovery-guidance-parity-plan.md)
+records the bounded fault provenance, including degraded retained ownership and
+synthetic surviving resources. The PR owns the final correction and latest gates.
+
 Completion requires every named cell's exact oracle, not merely the existence of
 older tests. A reproduced defect may close only after its correction and checks;
 an unproved or unresolved cell remains open and blocks claiming full parity.
@@ -164,18 +169,19 @@ installation, source counts, transport mocks and truthful refusal alone cannot
 complete this outcome. There is no fleet-wide success percentage or universal
 never-block guarantee supported by the evidence.
 
-### Adopted goal brief — delivery effects still require named approval
+### Existing goal brief — approved batch and broader acceptance
 
 Make ordinary managed Devrouter sessions usable through bounded preserving
 recovery and guidance that the packed public CLI can actually follow. Follow this
 roadmap: deliver the reviewed correction as 0.6.7 first, then qualify the finite
 recovery-state matrix and its demonstrated corrections through a reviewed draft.
-Continue concrete release preparation under the adopted goal. Execute its
-remaining release effects and the parity implementation only after their named
-approval; this batch terminal is separate from whole-outcome acceptance. The broader outcome still
-requires a selected existing consumer owner's useful-work, preservation, neighbour
-and stopped-terminal proof. Preserve the accepted 0.6.4 journey and keep retained
-maintenance separate. The user-set native goal is active; this document does not authorize its gated effects.
+The approved release-first batch has published 0.6.7 and continues through the
+reviewed matrix draft. Conditional adoption remains held pending participating
+clients; the broader outcome requires a selected existing consumer owner's
+useful-work, preservation, neighbour and stopped-terminal proof. Preserve the
+accepted 0.6.4 journey and keep retained maintenance separate. The existing native
+goal remains blocked under its user-only resume control; this document neither
+changes that status nor grants another runtime attempt.
 
 ## Historical direction and evidence — through 2026-11-02
 

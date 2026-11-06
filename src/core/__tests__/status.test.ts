@@ -12,7 +12,8 @@ vi.mock("../docker", () => ({
   networkExists: vi.fn(async () => true),
 }));
 
-vi.mock("../managed-runtime-status", () => ({
+vi.mock("../managed-runtime-status", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../managed-runtime-status")>()),
   collectManagedRuntimeStatus: vi.fn(),
 }));
 
@@ -26,7 +27,8 @@ vi.mock("../repo-config", () => ({
   resolveRepoPath: vi.fn((repoPath?: string) => repoPath ?? process.cwd()),
 }));
 
-vi.mock("../router", () => ({
+vi.mock("../router", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../router")>()),
   areTLSCertsPresent: vi.fn(() => false),
   DEVNET_NAME: "devnet",
   getActiveTcpProtocols: vi.fn(() => []),

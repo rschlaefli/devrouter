@@ -2,7 +2,7 @@ import fs from "node:fs";
 import type { RepoStatus, RouterStatus } from "../types";
 import { findContainerByName, getCurrentDockerContext, networkExists } from "./docker";
 import { readManagedRuntimeState } from "./managed-runtime-state";
-import { collectManagedRuntimeStatus } from "./managed-runtime-status";
+import { collectManagedRuntimeStatus, managedRuntimeRecovery } from "./managed-runtime-status";
 import { getRepoConfigPath, loadRuntimeConfig, resolveRepoPath } from "./repo-config";
 import {
   areTLSCertsPresent,
@@ -175,19 +175,17 @@ export async function collectRouterStatus(repoPath?: string): Promise<RouterStat
     );
   } else if (repo?.valid) {
     const repoArgument = `'${repo.path.replaceAll("'", `'\\''`)}'`;
-    const failedTransition = repo.managedRuntime?.status === "failed-transition";
+    const recovery = repo.managedRuntime
+      ? managedRuntimeRecovery(repo.managedRuntime, repo.path)
+      : undefined;
     if (repo.managedRuntime?.mode === "managed") {
-      nextSteps.push(
-        failedTransition
-          ? `Inspect: devrouter status --repo ${repoArgument}; resolve the reported drift before retrying ensure.`
-          : `Run: devrouter ensure ${repoArgument}`,
-      );
+      nextSteps.push(...(recovery ?? [`Run: devrouter ensure ${repoArgument}`]));
     } else {
       nextSteps.push(`Run: dev app ls --repo ${repo.path}`);
       nextSteps.push("Run: dev app run <name> --repo <path> --yes");
     }
     nextSteps.push("Run: dev ls");
-    if (!failedTransition && repo.managedRuntime?.mountNesting?.status === "unwound") {
+    if (!recovery && repo.managedRuntime?.mountNesting?.status === "unwound") {
       nextSteps.push(
         `Run: devrouter stop ${repoArgument} and then devrouter ensure ${repoArgument} to re-apply the unwound nested mount`,
       );

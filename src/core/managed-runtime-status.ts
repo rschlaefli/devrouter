@@ -7,6 +7,7 @@ import type {
   ManagedRuntimeResourceStatus,
   ManagedRuntimeStatus,
 } from "../types";
+import type { CapacityHistoryCause } from "./capacity-store";
 import {
   inspectManagedDevcontainerConfig,
   inspectManagedDevcontainerGeneratedConfig,
@@ -24,7 +25,7 @@ import { projectLifecycleOperation } from "./lifecycle-operation-status";
 import { observeManagedMountNesting } from "./managed-mount-nesting";
 import { runManagedProcessAction } from "./managed-post-start";
 import { type ManagedRuntimeState, readManagedRuntimeState } from "./managed-runtime-state";
-import { readReliabilityOperation } from "./reliability-operation-store";
+import { ReliabilityJournalError, readReliabilityOperation } from "./reliability-operation-store";
 import { reliabilityAttention } from "./reliability-output";
 import { sameWorkspacePath } from "./workspace";
 import { resolveWorkspaceRuntimeForReport } from "./workspace-runtime";
@@ -36,6 +37,51 @@ import { resolveWorkspaceRuntimeForReport } from "./workspace-runtime";
 function recoveryPath(repoPath: string): string {
   if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(repoPath)) return repoPath;
   return `'${repoPath.replaceAll("'", "'\\''")}'`;
+}
+
+const HISTORY_CAUSES = {
+  "journal-directory-unreadable": true,
+  "journal-directory-unsafe": true,
+  "journal-entry-unsupported": true,
+  "journal-enumeration-limit": true,
+  "journal-enumeration-timeout": true,
+  "journal-unreadable": true,
+  "journal-entry-unsafe": true,
+  "journal-invalid": true,
+  "journal-writer-newer": true,
+  "journal-identity-mismatch": true,
+  "journal-unstable": true,
+  "journal-enumeration-failed": true,
+} satisfies Record<CapacityHistoryCause, true>;
+
+/** Recovery that must take precedence over ordinary startup and mount restart advice. */
+export function managedRuntimeRecovery(
+  runtime: ManagedRuntimeStatus,
+  repoPath: string,
+): string[] | undefined {
+  const checkout = recoveryPath(repoPath);
+  const historyCause = runtime.drift.find((entry) => Object.hasOwn(HISTORY_CAUSES, entry));
+  if (historyCause) {
+    return [
+      historyCause === "journal-writer-newer"
+        ? "Preserve lifecycle history and use a matching or newer devrouter CLI before retrying lifecycle commands."
+        : "Preserve lifecycle history and inspect its unreadable or unsafe evidence before retrying lifecycle commands.",
+      `Inspect: devrouter status --repo ${checkout} --json`,
+    ];
+  }
+  if (runtime.status === "failed-transition") {
+    return [
+      `Inspect: devrouter status --repo ${checkout}; resolve the reported drift before retrying ensure.`,
+    ];
+  }
+  const attention = runtime.reliability?.attention;
+  if (attention?.recovery.length) return attention.recovery;
+  if (attention || runtime.reliability?.operation?.drained === false) {
+    return [
+      `Inspect: devrouter status --repo ${checkout} --json; wait for the current lifecycle owner to finish or cancel it before retrying.`,
+    ];
+  }
+  return undefined;
 }
 
 /**
@@ -82,7 +128,9 @@ function reliabilityRecovery(
         `Run: devrouter ensure ${checkout}${variantOption} (still queued until capacity frees up)`,
       ];
     default:
-      return [];
+      return [
+        `Inspect: devrouter status --repo ${checkout} --json; wait for the current lifecycle owner to finish or cancel it before retrying.`,
+      ];
   }
 }
 
@@ -103,13 +151,14 @@ function refusedManagedStart(
 
 /**
  * Durable lifecycle intent for one exact managed environment, read from its
- * reliability journal. Any missing or unsafe evidence omits the block rather
- * than reporting a guessed reason.
+ * reliability journal. Unreadable evidence adds values-free drift rather than
+ * reporting a guessed reason or a ready environment.
  */
 function readReliabilityStatus(options: {
   repoPath: string;
   workspace?: string;
   variant?: string;
+  drift: string[];
 }): ManagedReliabilityStatus | undefined {
   let provider: ReturnType<typeof resolveWorkspaceRuntimeForReport>;
   try {
@@ -125,7 +174,10 @@ function readReliabilityStatus(options: {
       workspace: options.workspace ?? null,
       provider,
     });
-  } catch {
+  } catch (error) {
+    options.drift.push(
+      error instanceof ReliabilityJournalError ? error.cause : "journal-unreadable",
+    );
     return undefined;
   }
   if (!record) return undefined;
@@ -693,6 +745,13 @@ export function collectManagedRuntimeStatus(options: {
     drift.push("one or more active processes are outside the selected profile");
   }
 
+  const reliability = readReliabilityStatus({
+    repoPath: options.repoPath,
+    variant: state?.variant,
+    drift,
+    ...(options.workspace !== undefined ? { workspace: options.workspace } : {}),
+  });
+
   const positivelyStopped =
     !inspection.primaryActive &&
     Object.values(inspection.baseStatuses).every(isStoppedOrMissingResourceStatus) &&
@@ -736,11 +795,11 @@ export function collectManagedRuntimeStatus(options: {
     processes: inspection.activeProcesses,
   };
 
-  const reliability = readReliabilityStatus({
-    repoPath: options.repoPath,
-    variant: state?.variant,
-    ...(options.workspace !== undefined ? { workspace: options.workspace } : {}),
-  });
+  if (status === "failed-transition" && reliability?.attention) {
+    reliability.attention.recovery = [
+      `Inspect: devrouter status --repo ${recoveryPath(options.repoPath)}; resolve the reported drift before retrying ensure.`,
+    ];
+  }
 
   return {
     mode: "managed",

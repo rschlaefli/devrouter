@@ -5,6 +5,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import type { DoctorReport, RouterStatus } from "../src/types";
 
 const ownedInvocations = new Set<ChildProcess>();
 
@@ -152,10 +153,10 @@ if (command === 'devsy' && args[0] === 'workspace' && args[1] === 'exec' && args
 }
 if (command === 'devpod' && args[0] === 'version') { console.log('fixture'); }
 else if (command === 'devsy' && args[0] === '--version') { console.log('fixture'); }
-else if (command === 'devpod' && args.join(' ') === 'list --output json --skip-pro') { output(state.provider === 'devpod' ? [{id:workspaceId,source:{localFolder:state.repo}}] : []); }
+else if (command === 'devpod' && args.join(' ') === 'list --output json --skip-pro') { output(state.provider === 'devpod' && !state.registrationAbsent ? [{id:workspaceId,source:{localFolder:state.repo}}] : []); }
 else if (command === 'devsy' && args.join(' ') === 'workspace list --result-format json --skip-pro') { output(state.provider === 'devsy' ? [{id:workspaceId,uid:'fixture-uid',context:'default',provider:{name:'docker',options:{DOCKER_PATH:{value:'docker'}}},source:{localFolder:state.repo}}] : []); }
 else if (command === 'devpod' && [ 'up '+state.repo+' --id fixture --open-ide=false', 'up '+state.repo+' --id fixture --devcontainer-path .devcontainer/devcontainer.devrouter.json --open-ide=false' ].includes(args.join(' '))) {
- state.running=true; state.starts=(state.starts??0)+1; write();
+ state.registrationAbsent=false; state.running=true; state.starts=(state.starts??0)+1; write();
  if(state.mode === 'start-failure') process.exit(1);
  if(state.mode === 'build-hold') {
   process.stderr.write('@fixture/util:build: compiling\\n');
@@ -189,6 +190,12 @@ else if (command === 'curl') {
   if(state.mode === 'readiness-hold') { fs.writeFileSync(file+'.readiness', String(process.pid)); setInterval(()=>{},1000); } else if(Object.values(document.http?.routers??{}).some(router=>router.rule==='Host('+String.fromCharCode(96)+'fixture.localhost'+String.fromCharCode(96)+')')) console.log('200'); else fail();
  } else fail();
 }
+else if (command === 'docker' && args.join(' ') === 'compose version') console.log('Docker Compose version v2.40.0');
+else if (command === 'docker' && ['network ls --no-trunc --quiet','ps --all --quiet --no-trunc'].includes(args.join(' '))) { }
+else if (command === 'ip' && args.join(' ') === '-j -4 route show table all') output([]);
+else if (command === 'mkcert' && args.join(' ') === '-version') console.log('v1.4.4');
+else if (command === 'docker' && args.join(' ') === 'info --format {"id":{{json .ID}},"pools":{{json .DefaultAddressPools}}}') output({id:'fixture-daemon',pools:[]});
+else if (command === 'docker' && args.join(' ') === 'exec '+containerId+' cat /proc/self/mountinfo') console.log('1 0 0:1 / /workspace rw - synthetic synthetic rw');
 else if (command === 'docker' && args.join(' ') === 'info --format {{json .ID}}') output('fixture-daemon');
 else if (command === 'docker' && args[0] === 'inspect' && args[2] === '{{json (index .Config.Labels "dev.containers.id")}}' && args.at(-1) === containerId) output(workspaceId);
 else if (command === 'docker' && args.join(' ') === 'context show') console.log('fixture');
@@ -197,12 +204,15 @@ else if (command === 'docker' && args.join(' ') === 'exec '+containerId+' git -C
 else if (command === 'docker' && args.join(' ') === 'compose -f '+process.env.HOME+'/.config/devrouter/compose.yml up -d') { }
 else if (command === 'docker' && args[0] === 'compose' && args.includes('--services') && args.includes('--no-env-resolution')) console.log('app');
 else if (command === 'docker' && args[0] === 'compose' && args.includes('--hash') && args.at(-1) === 'app') { fs.readFileSync(0); console.log('app '+'0'.repeat(64)); }
-else if (command === 'docker' && args[0] === 'compose' && args.includes('config') && args.includes('--format') && args.at(-1) === 'json') output({services:{app:{image:'synthetic'}}});
+else if (command === 'docker' && args[0] === 'compose' && args.includes('config') && args.includes('--format') && args.at(-1) === 'json') output({services:{app:{image:'synthetic',...(state.portConflict ? {ports:[{target:3000,published:'45678',host_ip:'127.0.0.1'}]} : {})}}});
 else if (command === 'docker' && args[0] === 'exec' && args[1] === '-i' && args[2] === containerId && args[3] === 'sh') { fs.readFileSync(0); state.deliveries=(state.deliveries??0)+1; write(); }
 else if (command === 'docker' && args[0] === 'exec' && args.includes(containerId) && args.includes('DEVROUTER_PROCESS_SET=') && args.includes('.devcontainer/post-start.sh')) { state.adapters=(state.adapters??0)+1; write(); }
 else if (command === 'docker' && args[0] === 'ps' && args.includes('{{.ID}}')) { console.log(containerId); }
+else if (command === 'docker' && args[0] === 'inspect' && args.at(-1) === containerId && args[2]?.includes('NetworkSettings.Ports')) {
+ output({id:containerId,name:'/holding-fixture',labels:{'com.docker.compose.project':'holder','com.docker.compose.project.working_dir':state.repo+'/holder'},ports:{'3000/tcp':[{HostIp:'127.0.0.1',HostPort:'45678'}]}});
+}
 else if (command === 'docker' && args[0] === 'inspect' && args.at(-1) === containerId && args[1] === '--format') {
- output({id:containerId,state:{Running:state.running,Status:state.running?'running':'exited',Paused:false,Restarting:false,Dead:false},labels:{'com.docker.compose.project':'fixture','com.docker.compose.service':'app','com.docker.compose.project.working_dir':state.repo+'/.devcontainer','com.docker.compose.project.config_files':state.repo+'/.devcontainer/compose.yml','com.docker.compose.config-hash':'0'.repeat(64)},mounts:[{Type:'bind',Source:state.repo,Destination:'/workspace'}],networks:{devnet:{Aliases:["fixture-app"]}}});
+ output({id:containerId,state:{Running:state.running,Status:state.running?'running':'exited',Paused:false,Restarting:false,Dead:false},labels:{'com.docker.compose.project':state.foreign?'foreign':'fixture','com.docker.compose.service':'app','com.docker.compose.project.working_dir':state.repo+(state.portConflict?'/holder':'')+'/.devcontainer','com.docker.compose.project.config_files':state.repo+'/.devcontainer/compose.yml','com.docker.compose.config-hash':'0'.repeat(64)},mounts:[{Type:'bind',Source:state.repo+(state.portConflict?'/holder':''),Destination:'/workspace'},...(state.unwound ? [{Type:'volume',Name:'synthetic-deps',Source:'/synthetic/deps',Destination:'/workspace/deps'}] : [])],networks:{devnet:{Aliases:["fixture-app"]}}});
 }
 else if ((command === 'devpod' && args[2] === 'ssh' && args[3] === workspaceId) || (command === 'devsy' && args[0] === 'workspace' && args[1] === 'exec' && args[4] === workspaceId)) {
  state.launches++; write();
@@ -227,10 +237,10 @@ else if ((command === 'devpod' && args[2] === 'ssh' && args[3] === workspaceId) 
   process.stderr.write(marker+String(state.exitCode)+'\\n', () => { if(state.mode==='marker-signal') process.kill(process.pid,'SIGKILL'); });
  } else process.exit(state.exitCode);
 }
-else if ((command==='devpod' && args[0]==='stop' && args[1]===workspaceId) || (command==='devsy' && args[0]==='workspace' && args[1]==='stop' && args[2]===workspaceId)) { state.running=false; write(); }
+else if ((command==='devpod' && args[0]==='stop' && args[1]===workspaceId) || (command==='devsy' && args[0]==='workspace' && args[1]==='stop' && args[2]===workspaceId)) { state.running=state.survivesStop===true; state.stops=(state.stops??0)+1; write(); }
 else fail();
 `;
-  for (const command of ["docker", "devpod", "devsy", "mkcert", "curl"])
+  for (const command of ["docker", "devpod", "devsy", "mkcert", "curl", "ip"])
     fs.writeFileSync(path.join(bin, command), fixtureSource, { mode: 0o700 });
   let journal = path.join(
     home,
@@ -261,6 +271,12 @@ else fail();
     );
   }
   const evidence: string[] = [];
+  const guidanceEvidence: Array<{
+    state: string;
+    provenance: string;
+    reports: string[];
+    actions: string[];
+  }> = [];
   configure("complete", 7);
   expectExit(["exec", repo, "--", "synthetic"], 7);
   assert.equal(read().state.operation.exitCode, 7);
@@ -486,6 +502,340 @@ else fail();
       const stateFile = path.join(stateDirectory, stateName);
       const managedState = JSON.parse(fs.readFileSync(stateFile, "utf8"));
       assert.equal(managedState.status, "ready");
+      async function qualifyRecoveryGuidance() {
+        const originalHome = closedEnv.HOME;
+        const originalJournal = journal;
+        const fixtureState = () => JSON.parse(fs.readFileSync(fixture, "utf8"));
+        const changeFixture = (changes: Record<string, unknown>) =>
+          fs.writeFileSync(fixture, JSON.stringify({ ...fixtureState(), ...changes }));
+        const marker = path.join(root, "guidance-retained-data");
+        fs.writeFileSync(marker, "synthetic retained data");
+        let activeStateFile = "";
+        let cell: (typeof guidanceEvidence)[number];
+        async function action(args: string[], code = 0) {
+          const pending = launch(args);
+          const actual = await pending.done;
+          assert.equal(actual, code, `${args.join(" ")}: ${pending.output()}`);
+          assert.ok(!fs.existsSync(`${fixture}.unexpected`), "Unexpected fixture command");
+          assert.equal(fs.readFileSync(marker, "utf8"), "synthetic retained data");
+          cell?.actions.push(
+            `${args.map((arg) => (arg === repo ? "<fixture-checkout>" : arg)).join(" ")}:exit=${actual}`,
+          );
+          return pending;
+        }
+        async function begin(
+          label: string,
+          initialize = true,
+          provenance = "public commands with explicit synthetic fault observations",
+        ) {
+          cell = {
+            state: label,
+            provenance,
+            reports: [],
+            actions: [],
+          };
+          guidanceEvidence.push(cell);
+          freshHome(`guidance-${label}`);
+          configure("complete");
+          fs.writeFileSync(path.join(repo, ".devrouter.yml"), managedConfig);
+          if (initialize) await action(["ensure", repo, "--json"]);
+          activeStateFile = path.join(
+            closedEnv.HOME,
+            ".config/devrouter/managed-runtime",
+            path.basename(stateFile),
+          );
+        }
+        function advice(status: RouterStatus): string[] {
+          return [
+            ...status.insights.nextSteps,
+            ...(status.repo?.managedRuntime?.reliability?.attention?.recovery ?? []),
+          ];
+        }
+        async function reports(errors: string[] = []) {
+          const resources = fs.readFileSync(fixture, "utf8");
+          const journalBefore = fs.existsSync(journal) ? fs.readFileSync(journal, "utf8") : null;
+          const status = await action(["status", "--repo", repo, "--json"]);
+          const doctor = await action(["doctor", "--repo", repo, "--json"], errors.length ? 1 : 0);
+          const state: RouterStatus = JSON.parse(status.stdout());
+          const diagnosis: DoctorReport = JSON.parse(doctor.stdout());
+          assert.ok(state.repo);
+          assert.equal(state.repo.valid, true, state.repo.error);
+          const runtime = state.repo.managedRuntime;
+          assert.ok(runtime);
+          assert.equal(runtime.mode, "managed");
+          assert.ok(server.listening, "Docker fixture must remain live");
+          assert.equal(state.networkExists, true);
+          assert.ok(
+            !state.insights.nextSteps.some((step: string) =>
+              step.includes("Docker is running and reachable"),
+            ),
+          );
+          assert.deepEqual(
+            diagnosis.checks
+              .filter((check) => check.level === "error")
+              .map((check) => check.id)
+              .sort(),
+            errors.slice().sort(),
+          );
+          for (const id of ["global.docker-compose", "global.mkcert"])
+            assert.equal(diagnosis.checks.find((check) => check.id === id)?.level, "ok", id);
+          assert.equal(
+            fs.readFileSync(fixture, "utf8"),
+            resources,
+            "Reports mutated provider state",
+          );
+          assert.equal(
+            fs.existsSync(journal) ? fs.readFileSync(journal, "utf8") : null,
+            journalBefore,
+            "Reports mutated journal",
+          );
+          const steps = [advice(state), diagnosis.nextSteps];
+          cell.reports.push(
+            "status --repo <fixture-checkout> --json:exit=0",
+            `doctor --repo <fixture-checkout> --json:exit=${errors.length ? 1 : 0}`,
+          );
+          return { state, diagnosis, runtime, steps };
+        }
+        function advisedArgs(steps: string[], command: string) {
+          // Only this fixture's literal checkout and known CLI flags can become argv.
+          // Prose-gated later actions are deliberately excluded from selection.
+          const line = steps.find(
+            (step) =>
+              step.startsWith(`Run: devrouter ${command} `) ||
+              step.startsWith(`Inspect: devrouter ${command} `),
+          );
+          assert.ok(line, `Missing unconditional ${command} guidance: ${steps.join(" | ")}`);
+          const start = line.indexOf(`devrouter ${command} `);
+          const quoted = line.includes(`'${repo}'`, start);
+          const end =
+            line.indexOf(quoted ? `'${repo}'` : repo, start) + repo.length + (quoted ? 2 : 0);
+          assert.ok(end > start, "Advice selects another checkout");
+          const tokens = line.slice(start, end).match(/'[^']*'|[^ ]+/g);
+          assert.ok(tokens);
+          const words = tokens.map((word) => word.replace(/^'|'$/g, ""));
+          assert.deepEqual(words, [
+            "devrouter",
+            command,
+            ...(["status", "doctor"].includes(command) ? ["--repo"] : []),
+            repo,
+          ]);
+          return [...words.slice(1), "--json"];
+        }
+        async function follow(steps: string[], command: string, code = 0) {
+          return action(advisedArgs(steps, command), code);
+        }
+        function noStartup(steps: string[][]) {
+          assert.ok(
+            steps.flat().every((step) => !/\bdevrouter (?:ensure|stop|exec)\b/.test(step)),
+            steps.flat().join(" | "),
+          );
+        }
+        async function stop() {
+          await action(["stop", repo, "--json"]);
+        }
+
+        for (const stopped of [false, true]) {
+          await begin(
+            stopped ? "stopped" : "ready",
+            true,
+            "Public ensure/stop through closed synthetic provider commands.",
+          );
+          if (stopped) await stop();
+          const report = await reports();
+          assert.equal(report.runtime.status, stopped ? "stopped" : "ready");
+          for (const steps of report.steps) await follow(steps, "ensure");
+          assert.equal(JSON.parse(fs.readFileSync(activeStateFile, "utf8")).status, "ready");
+          await stop();
+        }
+        for (const unwound of [false, true]) {
+          await begin(
+            `failed-${unwound}`,
+            true,
+            `Test-owned degraded managed state with unwound nested mount observation=${unwound}.`,
+          );
+          const state = JSON.parse(fs.readFileSync(activeStateFile, "utf8"));
+          fs.writeFileSync(activeStateFile, JSON.stringify({ ...state, status: "degraded" }));
+          changeFixture({ unwound });
+          const retained = fs.readFileSync(activeStateFile, "utf8");
+          const report = await reports(["repo.managed-runtime"]);
+          assert.equal(report.runtime.status, "failed-transition");
+          if (unwound) assert.equal(report.runtime.mountNesting?.status, "unwound");
+          noStartup(report.steps);
+          for (const steps of report.steps) await follow(steps, "status");
+          assert.equal(fs.readFileSync(activeStateFile, "utf8"), retained);
+          changeFixture({ unwound: false });
+          fs.writeFileSync(activeStateFile, JSON.stringify(state));
+          const resolved = await reports();
+          await follow(resolved.steps[0], "ensure");
+          await stop();
+        }
+        for (const fault of ["newer-writer", "corrupt", "unsafe"]) {
+          await begin(
+            fault,
+            true,
+            `Test-owned ${fault} journal fault. Future stamp 9.0.0 is not actual version compatibility proof.`,
+          );
+          const original = fs.readFileSync(journal, "utf8");
+          if (fault === "newer-writer")
+            fs.writeFileSync(journal, JSON.stringify({ ...read(), writtenByVersion: "9.0.0" }));
+          else if (fault === "corrupt") fs.writeFileSync(journal, "{");
+          else fs.chmodSync(journal, 0o644);
+          const retained = fs.readFileSync(journal, "utf8");
+          const resources = fs.readFileSync(fixture, "utf8");
+          const report = await reports(["global.capacity-ledger", "repo.managed-runtime"]);
+          assert.equal(report.runtime.status, "drifted");
+          noStartup(report.steps);
+          for (const steps of report.steps) await follow(steps, "status");
+          const refusal = await action(["ensure", repo, "--json"], 1);
+          assert.match(
+            refusal.output(),
+            fault === "newer-writer" ? /newer devrouter CLI/ : /(?:journal|record|JSON|private)/i,
+          );
+          if (fault === "newer-writer")
+            assert.equal(
+              report.diagnosis.checks
+                .find((check) => check.id === "global.capacity-ledger")
+                ?.details?.split("; ")
+                .includes("journal-writer-newer"),
+              true,
+            );
+          assert.equal(fs.readFileSync(journal, "utf8"), retained);
+          assert.equal(fs.readFileSync(fixture, "utf8"), resources);
+          fs.chmodSync(journal, 0o600);
+          fs.writeFileSync(journal, original);
+          await stop();
+        }
+        for (const unknown of [false, true]) {
+          await begin(
+            unknown ? "unknown-completion" : "known-interruption",
+            true,
+            unknown
+              ? "Public exec with synthetic provider SIGKILL and no completion marker."
+              : "Public ensure cancelled at its synthetic readiness barrier with worker drainage observed.",
+          );
+          if (unknown) {
+            changeFixture({ mode: "unknown" });
+            await action(["exec", repo, "--", "synthetic"], 1);
+          } else {
+            changeFixture({ mode: "readiness-hold" });
+            if (fs.existsSync(`${fixture}.readiness`)) fs.unlinkSync(`${fixture}.readiness`);
+            const pending = launch(["ensure", repo, "--json"]);
+            await watchUntil(`${fixture}.readiness`, () => fs.existsSync(`${fixture}.readiness`));
+            pending.child.kill("SIGTERM");
+            assert.equal(await pending.done, 1, pending.output());
+            fs.unlinkSync(`${fixture}.readiness`);
+          }
+          assert.equal(read().state.operation.status, "INTERRUPTED");
+          if (unknown) assert.equal(read().outcome.status, "completion-unknown");
+          const launches = fixtureState().launches;
+          const report = await reports();
+          assert.equal(report.runtime.reliability?.attention?.reason, "operation-unknown");
+          for (const steps of report.steps) {
+            const ensure = steps.findIndex((step) => /^Run: devrouter ensure/.test(step));
+            const stop = steps.findIndex((step) => /^Run: devrouter stop/.test(step));
+            assert.ok(ensure < 0 || (stop >= 0 && stop < ensure));
+          }
+          await action(["exec", repo, "--", "synthetic"], 1);
+          assert.equal(fixtureState().launches, launches);
+          assert.deepEqual(
+            advisedArgs(report.steps[0], "stop"),
+            advisedArgs(report.steps[1], "stop"),
+          );
+          await follow(report.steps[0], "stop");
+          assert.deepEqual(read().state.stopProof, { workloadsStopped: true, routesRemoved: true });
+          changeFixture({ mode: "complete" });
+          const reconciled = await reports();
+          await follow(reconciled.steps[0], "ensure");
+          await stop();
+        }
+        await begin(
+          "busy-exec",
+          true,
+          "Public exec held at the synthetic provider barrier while reports run; release preserves its numeric result.",
+        );
+        changeFixture({ mode: "release-hold" });
+        const active = launch(["exec", repo, "--", "synthetic"]);
+        await watchUntil(`${fixture}.barrier`, () => fs.existsSync(`${fixture}.barrier`));
+        const busy = await reports();
+        assert.equal(busy.runtime.reliability?.operation?.drained, false);
+        noStartup(busy.steps);
+        for (const steps of busy.steps) await follow(steps, "status");
+        assert.equal(active.child.exitCode, null);
+        assert.equal(fixtureState().launches, 1);
+        changeFixture({ mode: "complete" });
+        fs.writeFileSync(`${fixture}.release`, "release");
+        assert.equal(await active.done, 0, active.output());
+        fs.unlinkSync(`${fixture}.release`);
+        fs.unlinkSync(`${fixture}.barrier`);
+        await stop();
+
+        await begin(
+          "port-conflict",
+          false,
+          "Test-owned rendered fixed binding, foreign holder and absent provider registration; no real host port is bound.",
+        );
+        changeFixture({ portConflict: true, registrationAbsent: true });
+        const refused = await action(["ensure", repo, "--json"], 1);
+        assert.equal(JSON.parse(refused.stdout()).hostPortConflicts[0].hostPort, 45678);
+        assert.equal(fixtureState().starts, undefined);
+        assert.equal(fixtureState().registrationAbsent, true);
+        const conflict = await reports(["repo.host-port-claims"]);
+        assert.equal(conflict.runtime.reliability?.attention?.reason, "start-refused");
+        assert.ok(conflict.steps.flat().every((step) => !/^Run: devrouter ensure/.test(step)));
+        for (const steps of conflict.steps) await follow(steps, "doctor", 1);
+        await stop();
+        assert.equal(fixtureState().running, true, "Conflict recovery stopped the foreign holder");
+        assert.equal(fixtureState().stops, undefined);
+        assert.equal(read().state.desired, "stopped-by-user");
+
+        await begin(
+          "unknown-ownership",
+          true,
+          "Test-owned foreign Compose project plus retained degraded state; only this repair ownership refusal is qualified.",
+        );
+        changeFixture({ foreign: true });
+        const ownedState = JSON.parse(fs.readFileSync(activeStateFile, "utf8"));
+        fs.writeFileSync(activeStateFile, JSON.stringify({ ...ownedState, status: "degraded" }));
+        const ownedResources = fs.readFileSync(fixture, "utf8");
+        const ownership = await reports(["repo.managed-runtime"]);
+        noStartup(ownership.steps);
+        for (const steps of ownership.steps) await follow(steps, "status");
+        const unowned = await action(["ensure", repo, "--json"], 1);
+        assert.match(unowned.output(), /(?:foreign|ownership|project|container)/i);
+        assert.equal(fs.readFileSync(fixture, "utf8"), ownedResources);
+        changeFixture({ foreign: false });
+        await stop();
+
+        await begin(
+          "surviving-resources",
+          true,
+          "Synthetic provider stop returns while its exact container remains running; no real resources are used.",
+        );
+        changeFixture({ survivesStop: true });
+        const incomplete = await action(["stop", repo, "--json"], 1);
+        assert.match(incomplete.output(), /(?:running|stop|surviv)/i);
+        assert.equal(fixtureState().running, true);
+        assert.equal(read().state.stopProof.workloadsStopped, false);
+        const surviving = await reports(["repo.managed-runtime"]);
+        assert.equal(surviving.runtime.reliability?.attention?.reason, "stop-incomplete");
+        assert.notEqual(surviving.runtime.status, "stopped");
+        changeFixture({ survivesStop: false });
+        assert.deepEqual(
+          advisedArgs(surviving.steps[0], "stop"),
+          advisedArgs(surviving.steps[1], "stop"),
+        );
+        await follow(surviving.steps[0], "stop");
+        assert.equal(fixtureState().running, false);
+        assert.deepEqual(read().state.stopProof, { workloadsStopped: true, routesRemoved: true });
+        closedEnv.HOME = originalHome;
+        journal = originalJournal;
+        configure("complete");
+        fs.writeFileSync(path.join(repo, ".devrouter.yml"), managedConfig);
+        evidence.push(
+          "eight managed recovery families use live closed reports and actual packed next actions; conditional startup remains gated",
+        );
+      }
+      await qualifyRecoveryGuidance();
       for (const stopped of [false, true]) {
         if (stopped) {
           const stopReady = launch(["stop", repo, "--json"]);
@@ -1068,7 +1418,8 @@ else fail();
         dirty,
         node: process.version,
         pnpm: run("pnpm", ["--version"]),
-        fixtureVersion: 2,
+        fixtureVersion: 3,
+        guidanceEvidence,
         tarballSha256: digest(tarball),
         cliSha256: digest(cli),
         workerSha256: digest(worker),

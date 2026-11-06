@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Managed status reports unreadable lifecycle history as drift and preserves its
+  compatible-reader or inspection remedy. Status and doctor prioritize durable
+  recovery and live-owner guidance over competing startup or mount-restart advice.
+
 ## [0.6.7] - 2026-11-05
 
 ### Agent Adaptation Prompt
