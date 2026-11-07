@@ -32,15 +32,18 @@ its history is retained in the [release plan](./2026-11-05-release-0.6.7-plan.md
 The new approval supersedes that unconsumed branch; no intermediate 0.6.7
 installation or duplicate notice sequence runs.
 
-The user resumed the existing native goal during this realignment. It is active
-with its original identity and unfinished outcome. Available controls cannot edit
-its objective text, so the corrected brief below is saved for adoption; no
-replacement goal or completion claim is made. Main remains the execution and
+The existing native goal remains incomplete with its original identity. It was
+resumed during realignment and later blocked at the named-authority boundary.
+The new actual approval permits this batch through available tools; native resume
+and objective editing remain user-only, without a replacement or completion claim. Main remains the execution and
 roadmap owner. Other consumer, maintenance, preview and shared-tooling owners
 retain their work.
 
 ### What changed in the route to acceptance
 
+The approved 0.6.8 release candidate is being prepared under its execution plan.
+Native checks, package smoke, 110-member source correspondence and actual-package
+compatibility pass locally. Independent release review and CI remain delivery gates.
 The next useful dependency is distribution and participating-client coordination,
 followed by an actual selected consumer journey. The report defect has a clean
 merged-source qualification; another general source review would repeat accepted

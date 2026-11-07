@@ -24,9 +24,9 @@ No owner has been messaged or runtime started by this realignment. `notLoaded`
 is an inactive status; saved history being readable does not prove successful
 message delivery, compatibility or runtime health.
 
-The existing native goal is active after the user's resume. The corrected goal
-brief is saved in the acceptance roadmap because available tools cannot edit its
-text. Whole acceptance still needs a current-package owner-held useful-work,
+The existing native goal retains its identity and incomplete outcome. The actual
+new approval permits this batch through available tools; native resume and text
+editing remain user-only. The corrected brief is saved in the acceptance roadmap. Whole acceptance still needs a current-package owner-held useful-work,
 retained-data, functional-neighbour and terminal-stop journey. The first 0.6.4
 journey remains accepted historically; later population uncertainty remains open.
 Maintenance/reset, shared tooling, preview/cloud and cleanup keep separate owners.
