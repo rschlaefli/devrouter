@@ -1,6 +1,193 @@
 # Reliable managed development environments
 
-## Current outcome, route and authority — 2026-11-05
+## Current outcome, route and authority — 2026-11-07
+
+**Outcome:** an ordinary Devrouter request enables useful application work and
+bounded, preserving recovery. Completion requires retained-data and functional
+neighbour checks plus canonical terminal stop on the declared support combinations.
+Live workers, unknown ownership and surviving resources still refuse unsafe
+transitions. Universal availability is not an acceptance claim.
+
+**Delivered:** [PR #180](https://github.com/rschlaefli/devrouter/pull/180) is merged
+at `f6851b1f6d82a623b3cf2cb260a4f2903b1829bb`. Its full tree equals reviewed
+candidate `a4ec77bf6d4aeb6ef0753d770b74de385b4cec07`.
+[Main CI](https://github.com/rschlaefli/devrouter/actions/runs/42200684961)
+passed on its first attempt, including 3,547 native tests, 13 concrete cases
+across eight recovery families and 34 original packed controls. Independent
+review passed after one focused correction. The source milestone is complete;
+its fixes remain unreleased.
+
+[0.6.7](https://github.com/rschlaefli/devrouter/releases/tag/v0.6.7) is the latest
+published version. Its package proof remains accepted. This Mac still selects
+0.6.6. The earlier ordinary 0.6.4 consumer journey remains accepted for its exact
+combination; later population uncertainty and current-release consumer acceptance
+remain open. None of these technical milestones proves all consumers unblocked.
+
+**Current authority:** the release-first preparation/source batch and the later
+PR #180 ready/merge/main-verification batch reached their terminals. The human has now approved the full 0.6.8 release, conditional local install and
+owner-coordination batch, explicitly including inactive chats for read-only
+intake. It authorizes no consumer runtime attempt.
+The original conditional 0.6.7 compatibility/install/notice branch is unconsumed;
+its history is retained in the [release plan](./2026-11-05-release-0.6.7-plan.md).
+The new approval supersedes that unconsumed branch; no intermediate 0.6.7
+installation or duplicate notice sequence runs.
+
+The user resumed the existing native goal during this realignment. It is active
+with its original identity and unfinished outcome. Available controls cannot edit
+its objective text, so the corrected brief below is saved for adoption; no
+replacement goal or completion claim is made. Main remains the execution and
+roadmap owner. Other consumer, maintenance, preview and shared-tooling owners
+retain their work.
+
+### What changed in the route to acceptance
+
+The next useful dependency is distribution and participating-client coordination,
+followed by an actual selected consumer journey. The report defect has a clean
+merged-source qualification; another general source review would repeat accepted
+work. Do not turn stale open branches, maintenance/reset prerequisites or the
+entire historical checklist into requirements for this release.
+
+Each named owner currently reports `notLoaded` with its latest turn completed.
+Saved history is readable for the pilot and Control recovery owners. That proves
+read capability, not successful message delivery, compatibility, consent or runtime
+health. The earlier plan explicitly excluded unloaded recipients, so it produced
+a hold without attempting a send. The proposed batch names the wake-up effect
+instead of repeating that inactive-chat dead end.
+
+Local executable and bounded journal metadata were inspected privately. This
+is not a complete inventory of active participants. Gate installation on readers,
+writers, harnesses and controllers that share the affected local journal namespace
+or caller chain. Remote-only clients with independent state are not automatic
+blockers. Unknown affected participation holds installation alone; it does not
+hold publication, read-only intake or factual release notices.
+
+The Control iOS volume-naming proposal is consumer-owned and needs no Devrouter
+change. Its read-only intake is independent of release. A new initialization or
+consumer source/runtime effect still requires its concrete approved packet. The
+pilot's historical acceptance is preserved; it is not an automatic fallback.
+The disposable clean-restart lane remains separate retained maintenance.
+
+### Dependency-ordered remaining outcomes
+
+| Package | Outcome and evidence | Owner, authority and recovery |
+| --- | --- | --- |
+| Distribution and adoption — W7/W8 | Publish the merged guidance correction as proposed 0.6.8, verify official package identity, then conditionally select it locally. | Main; new named batch below. Unknown publication/install effects are reconciled before any retry. Participating-client uncertainty holds installation only. |
+| Ordinary consumer closure — W4/W5/W7/W8, RF08/RF11 | First obtain a current, frozen ordinary preserving journey from the existing Control recovery owner. Its later execution must prove useful native/browser work, data and functional neighbour preservation, and exact stop. | Existing consumer owner; read-only intake is proposed now. Source/runtime execution awaits the concrete packet and human decision. A Control blocker returns to the human without automatic consumer substitution. |
+| Interruption and portability — W2/W3b/W6a/W9, RF09/Q20 | Join selected process/dependency loss, contention, capacity/parking and suspend behavior to useful work on a declared caller/controller combination. Reuse passing evidence; short-suspend acceptance stays open. | Existing owners. No new fault or sleep attempt is authorized by this realignment. A second distinct consumer or enforcing harness remains necessary for a broader portability claim. |
+| Retained maintenance — separate contract | Qualify semantic probes, writer exclusion, durable dispatch and restoration against the actual consumer and provider boundary. | Existing maintenance/provider owners; the [maintenance plan](https://github.com/rschlaefli/devrouter/blob/741ef0f99579f08d32b119f35fc7fcf2b45e8986/docs/project/2026-10-30-retained-maintenance-transition-plan.md) retains its prerequisites. It does not block ordinary preserving startup or the release. |
+| Shared tooling and independent work | Role/default resolution, outcome classification, worktree binding and fixture preflight retain their existing acceptance and owners. Preview/cloud and reclamation stay independent. | Follow the [existing shared-tooling record](./2026-10-29-managed-fresh-bootstrap-plan.md#shared-routing-and-orchestration-follow-ups--2026-10-30); no configuration repair, cleanup or cross-owner takeover here. |
+
+Recovery guidance W1/W9 is delivered through PR #180 for the eight qualified
+families. The [matrix plan](./2026-11-05-recovery-guidance-parity-plan.md) records
+the fault provenance and limitations. It does not establish physical storage,
+live consumer acceptance or universal guidance equivalence beyond those cells.
+
+### Approved finite autonomous batch — 2026-11-07
+
+The human approved the complete conditional batch below, including inactive-chat
+wake-up for read-only intake. It supersedes the unconsumed 0.6.7 adoption branch.
+Release and consumer intake remain independent. The [0.6.8 execution plan](./2026-11-07-release-0.6.8-plan.md)
+owns delivery; consumer runtime attempts remain separately gated.
+
+1. **Prepare and deliver 0.6.8.** Use a purpose task worktree on
+   `rs/release-0.6.8` from qualified main `f6851b1f`, refreshing only for a concrete
+   readiness dependency. Change release metadata, changelog and one adaptation
+   prompt; retain dependencies, schema and lifecycle guards. Derive the release
+   execution plan in this artifacts root. Reuse PR #180's source review and
+   unchanged qualification. Complete required native/package checks, actual
+   packed 0.6.8-writer/official 0.6.7-reader refusal proof and positive read-only
+   reads of synthetic 0.6.6/0.6.7-written journals by the new package, held archive/member
+   identity, independent candidate review and exact-source CI. Freeze the
+   qualified release PR head, mark it ready and squash-merge to main after its
+   gates pass. Verify merged-tree equality and main CI, publish `v0.6.8` through
+   the existing workflow, then verify npm integrity and every package member
+   against the held archive. Unknown publication is inspected, never replayed.
+2. **Coordinate and conditionally adopt locally.** Send one initial read-only
+   request to each existing named chat: **Klicker v5 pilot acceptance**,
+   **Resume Klicker control recovery**, and **Resume disposable dev restart**.
+   Approval explicitly permits waking an addressable inactive chat while keeping
+   its model and ownership. The request explicitly limits the recipient to
+   read-only intake and grants no effect under earlier authority. Request
+   participating-client metadata or confirmed
+   nonparticipation, with no source, installation or lifecycle effect under prior
+   authority. The Control request also carries the independent intake in step 3.
+   A successful send is delivery only; it is not a compatibility reply. Use one
+   supported wait up to ten minutes, without repeated pings or a human-only
+   monitor. At batch close, allow one non-ping read of each messaged owner to
+   capture a late reply within the four-hour bound. It can clear installation
+   or capture the Control packet without another send; later replies await the
+   next continuation decision. An active owner at the observation limit is not
+   declared stopped or complete. Require the scoped local executable/journal inventory and confirmed
+   affected-client compatibility, including each concrete project-local wrapper
+   identified by inventory or owners, before one exact local Volta installation of
+   `@devrouter/cli@0.6.8`. Verify package/PATH bytes and unchanged journals and
+   receipts using read-only byte comparisons, without invoking lifecycle commands. An absent answer or unknown affected participant holds installation.
+   After verified publication, send each addressable owner one factual release
+   and install-or-hold notice. Record actual delivery errors without ping retries.
+   No other-host installation or lifecycle command follows.
+3. **Obtain the next ordinary consumer packet independently.** Ask the existing
+   Control recovery owner for a read-only current blocker assessment and frozen
+   proposed ordinary preserving journey: exact destination/source/package, data
+   effects, functional/data/neighbour/stop oracles and finite runtime budget.
+   This request may proceed alongside release preparation and does not depend on
+   installation. It grants no consumer source changes, initialization, reset or
+   runtime attempt. If that owner cannot produce an executable packet, retain the
+   exact blocker and return the consumer decision to the human. Do not substitute
+   another consumer or repeat the accepted pilot automatically.
+
+**Costs and bounds:** four hours aggregate including CI/reviews/waits; existing
+subscription review quota and variable registry/CI cost, no paid API evaluation.
+Observed candidate/main runs took roughly eight to nine minutes each; a release
+adds three CI stages plus native/package checks and review. Use one initial and
+one focused correction per applicable review, and at most one justified CI retry
+per stage/signature. At most one installation is permitted. An uncertain publish
+or install is reconciled without replay or automatic downgrade. Exhaustion holds
+only its dependent branch and preserves evidence.
+
+**Data and risk:** public source and package bytes go to the existing forge/npm
+project; internal client metadata and messages stay with configured owner chats
+and private execution evidence. Secrets and real application data are excluded.
+Publication is permanent and messages can wake recipients. Installation changes
+future local command selection but writes no lifecycle journal. Once a newer CLI
+writes history, older readers intentionally refuse it: preserve history and use
+a matching or newer CLI. A further fix release requires its own named authority;
+a downgrade, erasure or replay is not recovery. No provider/TLS change, deletion,
+shared-tooling repair, preview action or consumer runtime is included.
+
+**Batch terminal:** verified 0.6.8 publication; verified local selection or a
+specific affected-client compatibility hold; factual owner notices or exact
+delivery errors; and an ordinary consumer packet or concrete consumer decision
+gate. These are milestones toward the whole outcome. Installation or a truthful
+refusal alone cannot complete consumer acceptance.
+
+### Goal brief for the existing active goal
+
+Make ordinary Devrouter sessions usable for real application work through bounded,
+preserving recovery. Follow this acceptance roadmap through qualified distribution
+and participating-client adoption to an owner-verified current-package ordinary
+journey. Finish only when useful application work, relevant preserving recovery,
+retained data, functional neighbours and canonical stop are proved on the declared
+support combinations. Preserve the accepted 0.6.4 journey and all fail-closed
+ownership/no-replay checks. Execute only approved batches; the approved 0.6.8
+release/adoption and independent consumer intake follow their execution plan, while
+unknown consumer runtime effects await a frozen owner packet. Maintenance remains
+separate. Release and source milestones do not complete this goal.
+
+### Realignment Progress — 2026-11-07
+
+Main refreshed refs and producing delivery evidence, read scoped existing owner
+status/history, and reconciled one required Claude consultation plus its focused
+correction. Private findings dispositions retain requested/observed provenance.
+These roadmap and plan-Progress corrections are applied locally in the existing
+owned worktree. No source implementation, send, installation or runtime occurred.
+The existing native goal was resumed by the user; its objective text was not
+changed through unavailable controls. No new goal or watch was created.
+
+The 2026-11-05 section below is retained as historical planning and approval
+context. Its former draft/next-action and blocked-goal statements are superseded
+by the current direction above; the underlying release/source evidence remains.
+
+## Historical direction and evidence — 2026-11-05
 
 **Outcome:** an agent asks for an ordinary managed environment once, then does
 useful application work. Supported failures recover within a persistent budget

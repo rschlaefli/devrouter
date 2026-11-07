@@ -168,3 +168,29 @@ optional exhaustive-table hardening is applied. One focused review checks that
 correction and evidence. The PR owns latest-head review and exact-source CI
 status. Their passing terminal completes this source batch, with no matrix
 ready/merge/release or consumer acceptance inferred.
+
+### Later delivery and realignment — 2026-11-07
+
+The original approved scope and execution record above remain unchanged.
+The human later approved PR #180's merge; it completed at
+`f6851b1f6d82a623b3cf2cb260a4f2903b1829bb`. Its entire tree equals reviewed
+candidate `a4ec77bf6d4aeb6ef0753d770b74de385b4cec07`.
+[Main CI](https://github.com/rschlaefli/devrouter/actions/runs/42200684961)
+passed on its first attempt with 3,547 tests, all 13 packed matrix cases and the
+34 original controls. Independent final review and its focused correction passed.
+The source package and subsequent merge verification reached their terminals.
+The diagnostic corrections remain unreleased; no new matrix implementation is
+pending and accepted source evidence need not be repeated merely for a new phase.
+
+The user has resumed the existing native goal, which is active and incomplete.
+The [acceptance roadmap](./2026-09-13-reliability-release-plan.md) now owns the
+proposed 0.6.8 release/adoption batch and independent read-only consumer intake.
+The current realignment applies document corrections only. The unconsumed 0.6.7
+adoption authority remains historical and is superseded only by an explicit new
+batch approval. No messaging transport failure is inferred from inactive chat
+status, and no message, install or consumer runtime occurred here.
+
+The root outcome still requires owner-held current-package application work,
+data and functional neighbour preservation, and canonical stop. Retained
+maintenance remains separate. This dated Progress update supersedes earlier
+current draft/review/blocked-goal statements without rewriting frozen approvals.
