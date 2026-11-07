@@ -4,11 +4,23 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.8] - 2026-11-07
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.6.8.md
+
 ### Fixed
 
 - Managed status reports unreadable lifecycle history as drift and preserves its
   compatible-reader or inspection remedy. Status and doctor prioritize durable
   recovery and live-owner guidance over competing startup or mount-restart advice.
+
+### Compatibility
+
+- Coordinate clients that share lifecycle history before a newer lifecycle write.
+  Older 0.6.7 readers intentionally refuse 0.6.8-written journals. Preserve journals
+  and durable attempts; installation alone grants no consumer lifecycle authority.
 
 ## [0.6.7] - 2026-11-05
 

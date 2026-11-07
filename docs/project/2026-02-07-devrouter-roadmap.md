@@ -4,7 +4,37 @@ Status: active. This record contains open work and quality gates, not current pr
 
 Use the [documentation map](../README.md) for supported behavior, [AGENTS.md](../../AGENTS.md) for repository constraints, and the [decision records](../adr/) for durable rationale.
 
-## Current direction — 2026-11-05
+## Current direction — 2026-11-07
+
+The [reliability acceptance roadmap](./2026-09-13-reliability-release-plan.md)
+owns the whole outcome, remaining packages and proposed conditional batch.
+[PR #180](https://github.com/rschlaefli/devrouter/pull/180) is merged at
+`f6851b1f6d82a623b3cf2cb260a4f2903b1829bb`, with full reviewed-tree equality
+and passing [main CI](https://github.com/rschlaefli/devrouter/actions/runs/42200684961):
+3,547 tests and 13 packed cases across eight recovery families. Its guidance
+corrections are merged and unreleased. Published 0.6.7 and installed 0.6.6 remain
+separate delivery states; neither establishes current consumer recovery.
+
+The human approved one conditional 0.6.8 release/adoption batch plus independent
+read-only Control consumer intake. It reuses the merged source proof and explicitly
+names inactive-chat wake-up, participating-client compatibility and replacement
+of the unconsumed 0.6.7 adoption branch. The [release execution plan](./2026-11-07-release-0.6.8-plan.md) owns those effects;
+consumer runtime attempts remain separately gated.
+No owner has been messaged or runtime started by this realignment. `notLoaded`
+is an inactive status; saved history being readable does not prove successful
+message delivery, compatibility or runtime health.
+
+The existing native goal retains its identity and incomplete outcome. The actual
+new approval permits this batch through available tools; native resume and text
+editing remain user-only. The corrected brief is saved in the acceptance roadmap. Whole acceptance still needs a current-package owner-held useful-work,
+retained-data, functional-neighbour and terminal-stop journey. The first 0.6.4
+journey remains accepted historically; later population uncertainty remains open.
+Maintenance/reset, shared tooling, preview/cloud and cleanup keep separate owners.
+
+## Historical direction — 2026-11-05
+
+The section below retains the earlier planning and approval record. Its former
+current/draft/next-action and blocked-goal statements are superseded above.
 
 The [reliability acceptance roadmap](./2026-09-13-reliability-release-plan.md)
 owns current priorities, delivery layers and the remaining integrated canary,
