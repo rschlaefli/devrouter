@@ -50,12 +50,12 @@ merged-source qualification; another general source review would repeat accepted
 work. Do not turn stale open branches, maintenance/reset prerequisites or the
 entire historical checklist into requirements for this release.
 
-Each named owner currently reports `notLoaded` with its latest turn completed.
-Saved history is readable for the pilot and Control recovery owners. That proves
-read capability, not successful message delivery, compatibility, consent or runtime
-health. The earlier plan explicitly excluded unloaded recipients, so it produced
-a hold without attempting a send. The proposed batch names the wake-up effect
-instead of repeating that inactive-chat dead end.
+The earlier owner snapshots reported `notLoaded` with completed turns; that was
+inactivity evidence, not proof of transport failure or compatibility. The approved
+initial read-only requests have now been delivered to all three existing owners.
+Do not send them again. Current reply and conditional installation status lives
+in the [release plan Progress](./2026-11-07-release-0.6.8-plan.md#progress).
+The earlier 0.6.7 plan's unloaded-recipient hold remains historical evidence.
 
 Local executable and bounded journal metadata were inspected privately. This
 is not a complete inventory of active participants. Gate installation on readers,
@@ -75,7 +75,7 @@ The disposable clean-restart lane remains separate retained maintenance.
 | Package | Outcome and evidence | Owner, authority and recovery |
 | --- | --- | --- |
 | Distribution and adoption — W7/W8 | Publish the merged guidance correction as proposed 0.6.8, verify official package identity, then conditionally select it locally. | Main; new named batch below. Unknown publication/install effects are reconciled before any retry. Participating-client uncertainty holds installation only. |
-| Ordinary consumer closure — W4/W5/W7/W8, RF08/RF11 | First obtain a current, frozen ordinary preserving journey from the existing Control recovery owner. Its later execution must prove useful native/browser work, data and functional neighbour preservation, and exact stop. | Existing consumer owner; read-only intake is proposed now. Source/runtime execution awaits the concrete packet and human decision. A Control blocker returns to the human without automatic consumer substitution. |
+| Ordinary consumer closure — W4/W5/W7/W8, RF08/RF11 | First obtain a current, frozen ordinary preserving journey from the existing Control recovery owner. Its later execution must prove useful native/browser work, data and functional neighbour preservation, and exact stop. | Existing consumer owner; the approved read-only intake request is delivered. Source/runtime execution awaits the concrete packet and human decision. A Control blocker returns to the human without automatic consumer substitution. |
 | Interruption and portability — W2/W3b/W6a/W9, RF09/Q20 | Join selected process/dependency loss, contention, capacity/parking and suspend behavior to useful work on a declared caller/controller combination. Reuse passing evidence; short-suspend acceptance stays open. | Existing owners. No new fault or sleep attempt is authorized by this realignment. A second distinct consumer or enforcing harness remains necessary for a broader portability claim. |
 | Retained maintenance — separate contract | Qualify semantic probes, writer exclusion, durable dispatch and restoration against the actual consumer and provider boundary. | Existing maintenance/provider owners; the [maintenance plan](https://github.com/rschlaefli/devrouter/blob/741ef0f99579f08d32b119f35fc7fcf2b45e8986/docs/project/2026-10-30-retained-maintenance-transition-plan.md) retains its prerequisites. It does not block ordinary preserving startup or the release. |
 | Shared tooling and independent work | Role/default resolution, outcome classification, worktree binding and fixture preflight retain their existing acceptance and owners. Preview/cloud and reclamation stay independent. | Follow the [existing shared-tooling record](./2026-10-29-managed-fresh-bootstrap-plan.md#shared-routing-and-orchestration-follow-ups--2026-10-30); no configuration repair, cleanup or cross-owner takeover here. |
