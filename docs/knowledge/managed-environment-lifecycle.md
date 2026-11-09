@@ -480,7 +480,7 @@ whose complete historical and provider evidence survives.
 | Command | Effect | Preserved state |
 | --- | --- | --- |
 | `devrouter stop <path>` | Stop the exact primary or linked environment, remove its canonical routes, and prove Traefik unloaded them. | Checkout and linked ownership record. |
-| `devrouter exec <path> -- <command>` | Execute once inside an already-running exact runtime. | All lifecycle state; it does not start or recreate. |
+| `devrouter exec <path> -- <command>` | Execute once inside an already-running exact runtime. When Devsy's recorded result lacks a merged configuration or names a folder other than the primary container's checkout mount, it runs `docker exec --workdir <mount>` on that ownership-proven container instead of `devsy workspace exec`. | All lifecycle state; it does not start or recreate. |
 | `devrouter env <path> [-- <command>]` | Report host endpoints, or run a host command with them exported. | Read-only for all lifecycle state. |
 | `devrouter workspace stop <target>` | Reversible stop for the resolved linked owner. | Worktree, branch, and owner record. |
 | `devrouter workspace down <target>` | Delete the exact provider runtime and routes, then remove an unlocked worktree that holds no local state unless retained. | Branch; worktree and record only when explicitly retained or teardown fails before removal. |

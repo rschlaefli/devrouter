@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveRunningWorkspaceContainer } from "../devpod-environment";
 import { devsyExec, devsyExecOutcome } from "../devsy-exec";
 import { revalidateDevsyExecProof } from "../devsy-exec-proof";
 import { listDevsyWorkspaces, selectDevsyWorkspace } from "../devsy-workspaces";
@@ -8,6 +12,7 @@ import type { ExecutionOutcomeError } from "../execution-outcome";
 import { withWorkspaceLifecycleLock } from "../workspace";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
+vi.mock("../devpod-environment", () => ({ resolveRunningWorkspaceContainer: vi.fn() }));
 vi.mock("../devsy-exec-proof", () => ({ revalidateDevsyExecProof: vi.fn() }));
 vi.mock("../devsy-mutation", () => ({
   withMutationLock: (_activity: string, _target: string, operation: () => unknown) => operation(),
@@ -31,8 +36,26 @@ function mockExecExit(code: number | null, signal: string | null = null): void {
   });
 }
 
+let devsyHome: string;
+const previousDevsyHome = process.env.DEVSY_HOME;
+
+/** Writes the provider result Devsy resolves its container workspace folder from. */
+function writeWorkspaceResult(id: string, result: Record<string, unknown>): void {
+  const directory = path.join(devsyHome, "contexts", "default", "workspaces", id);
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, "workspace_result.json"), JSON.stringify(result));
+}
+
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
+  devsyHome = fs.mkdtempSync(path.join(os.tmpdir(), "devsy-exec-"));
+  process.env.DEVSY_HOME = devsyHome;
+});
+
+afterEach(() => {
+  if (previousDevsyHome === undefined) delete process.env.DEVSY_HOME;
+  else process.env.DEVSY_HOME = previousDevsyHome;
+  fs.rmSync(devsyHome, { recursive: true, force: true });
 });
 
 describe("devsyExec", () => {
@@ -148,6 +171,7 @@ describe("retained Devsy execution", () => {
     expect(spawn).not.toHaveBeenCalled();
   });
   it("keeps named-workspace semantics, context and literal command arguments", async () => {
+    writeWorkspaceResult(proof.id, { MergedConfig: { workspaceFolder: proof.workspacePath } });
     vi.mocked(selectDevsyWorkspace).mockReturnValue({
       id: proof.id,
       source: { localFolder: "/repo" },
@@ -173,5 +197,84 @@ describe("retained Devsy execution", () => {
       ],
       { stdio: "inherit" },
     );
+  });
+
+  it("runs on the proven primary when Devsy has no merged configuration", async () => {
+    writeWorkspaceResult(proof.id, { MergedConfig: null, Error: "postCreate failed" });
+    vi.mocked(selectDevsyWorkspace).mockReturnValue({
+      id: proof.id,
+      context: "default",
+      source: { localFolder: "/repo" },
+    });
+    mockExecExit(5);
+    await expect(devsyExecOutcome("/repo", ["tool", "a b"], proof)).resolves.toMatchObject({
+      status: "completed",
+      exitCode: 5,
+    });
+    expect(revalidateDevsyExecProof).toHaveBeenCalledWith("/repo", proof);
+    const [binary, args] = vi.mocked(spawn).mock.calls[0] as unknown as [string, string[]];
+    expect(binary).toBe("docker");
+    expect(args.slice(0, 2)).toEqual(["--host", proof.endpoint]);
+    expect(args.slice(-3)).toEqual([proof.containerId, "tool", "a b"]);
+    expect(args[args.indexOf("--workdir") + 1]).toBe(proof.workspacePath);
+  });
+});
+
+describe("Devsy workspace folder fallback", () => {
+  const workspace = { id: "actual-id", context: "default", source: { localFolder: "/repo" } };
+  const primary = { id: "b".repeat(64), workspacePath: "/workspaces/real" };
+
+  it("execs in the container mount when Devsy recorded no merged configuration", async () => {
+    writeWorkspaceResult(workspace.id, { MergedConfig: null, Error: "postCreate failed" });
+    vi.mocked(selectDevsyWorkspace).mockReturnValue(workspace);
+    vi.mocked(resolveRunningWorkspaceContainer).mockReturnValue(primary);
+    mockExecExit(4);
+
+    await expect(devsyExec("/repo", ["pnpm", "seed"])).resolves.toBe(4);
+
+    expect(withWorkspaceLifecycleLock).toHaveBeenCalledWith("/repo", expect.any(Function));
+    const [binary, args] = vi.mocked(spawn).mock.calls[0] as unknown as [string, string[]];
+    expect(binary).toBe("docker");
+    expect(args[0]).toBe("exec");
+    expect(args).toContain("-i");
+    expect(args[args.indexOf("--workdir") + 1]).toBe("/workspaces/real");
+    expect(args.slice(-3)).toEqual([primary.id, "pnpm", "seed"]);
+  });
+
+  it("execs in the container mount when it differs from Devsy's recorded folder", async () => {
+    writeWorkspaceResult(workspace.id, { MergedConfig: { workspaceFolder: "/workspaces/stale" } });
+    vi.mocked(selectDevsyWorkspace).mockReturnValue(workspace);
+    vi.mocked(resolveRunningWorkspaceContainer).mockReturnValue(primary);
+    mockExecExit(0);
+
+    await devsyExec("/repo", ["ls"]);
+
+    expect(vi.mocked(spawn).mock.calls[0][0]).toBe("docker");
+  });
+
+  it("keeps the Devsy path when its recorded folder is the mount", async () => {
+    writeWorkspaceResult(workspace.id, {
+      MergedConfig: { workspaceFolder: primary.workspacePath },
+    });
+    vi.mocked(selectDevsyWorkspace).mockReturnValue(workspace);
+    vi.mocked(resolveRunningWorkspaceContainer).mockReturnValue(primary);
+    mockExecExit(0);
+
+    await devsyExec("/repo", ["ls"]);
+
+    expect(vi.mocked(spawn).mock.calls[0][0]).toBe("devsy");
+  });
+
+  it("keeps the Devsy path when no single running primary container is provable", async () => {
+    writeWorkspaceResult(workspace.id, { MergedConfig: null });
+    vi.mocked(selectDevsyWorkspace).mockReturnValue(workspace);
+    vi.mocked(resolveRunningWorkspaceContainer).mockImplementation(() => {
+      throw new Error("Expected one running workspace app container");
+    });
+    mockExecExit(0);
+
+    await devsyExec("/repo", ["ls"]);
+
+    expect(vi.mocked(spawn).mock.calls[0][0]).toBe("devsy");
   });
 });

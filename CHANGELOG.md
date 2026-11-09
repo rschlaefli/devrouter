@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `devrouter exec` runs in the container's real workspace folder when Devsy's
+  recorded result has no merged configuration (for example after a failed
+  `postCreateCommand`) or names a different folder. It then executes on the
+  ownership-proven primary container with `docker exec --workdir` instead of
+  failing with an OCI `chdir` error. Healthy workspaces keep the Devsy path.
+
 ## [0.6.8] - 2026-11-07
 
 ### Agent Adaptation Prompt
