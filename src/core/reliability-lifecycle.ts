@@ -205,13 +205,23 @@ export function reconcileDrained(record: ReliabilityOperationRecord): void {
 
 /**
  * A fresh initialization refuses any retained runtime record, so a record whose
- * runtime was provably deleted out of band is retired before that refusal.
+ * runtime was provably deleted out of band is retired before that refusal. It runs
+ * only on the CLI path, never inside the capacity controller's event loop,
+ * because it waits on the provider lock.
  */
 function retireStaleRuntimeRecord(
   identity: ReliabilityIdentity,
   options: { initializeNew?: boolean; repair?: boolean },
 ): void {
   if (!options.initializeNew || options.repair || identity.provider !== "devsy") return;
+  // Retire only when the record is the sole remaining blocker: an initialization
+  // attempt, an app-replacement attempt or a missing declaration keep their own refusals.
+  if (
+    !loadRepoConfig(identity.repoPath).managedRuntime?.devcontainer.freshBootstrap ||
+    readReliabilityOperation(identity)?.freshBootstrap ||
+    readAppReplacementAttempt(identity)
+  )
+    return;
   withDevsyMutationLock("Retire stale managed runtime", identity.repoPath, () =>
     retireStaleManagedRuntimeState(identity.repoPath, identity.workspace ?? undefined),
   );
@@ -439,10 +449,7 @@ export function prepareManagedLifecycleOperation(input: {
     throw new Error("Managed operation input exceeds its byte limit.");
   if (input.initializeNew && input.kind !== "ensure")
     throw new Error("Initialization intent is valid only for an ensure operation.");
-  if (input.kind === "ensure") {
-    retireStaleRuntimeRecord(input.identity, input);
-    assertFreshBootstrapRequest(input.identity, input);
-  }
+  if (input.kind === "ensure") assertFreshBootstrapRequest(input.identity, input);
   const ids = newLifecycleIds();
   return updateReliabilityOperation(input.identity, (record) => {
     const retained = readManagedRuntimeState(

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
@@ -11,7 +11,7 @@ import { listDevsyWorkspaces, selectDevsyWorkspace } from "../devsy-workspaces";
 import type { ExecutionOutcomeError } from "../execution-outcome";
 import { withWorkspaceLifecycleLock } from "../workspace";
 
-vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
+vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
 vi.mock("../devpod-environment", () => ({ resolveRunningWorkspaceContainer: vi.fn() }));
 vi.mock("../devsy-exec-proof", () => ({ revalidateDevsyExecProof: vi.fn() }));
 vi.mock("../devsy-mutation", () => ({
@@ -48,6 +48,7 @@ function writeWorkspaceResult(id: string, result: Record<string, unknown>): void
 
 beforeEach(() => {
   vi.resetAllMocks();
+  vi.mocked(spawnSync).mockReturnValue({ status: 1, stdout: "" } as never);
   devsyHome = fs.mkdtempSync(path.join(os.tmpdir(), "devsy-exec-"));
   process.env.DEVSY_HOME = devsyHome;
 });
@@ -276,5 +277,79 @@ describe("Devsy workspace folder fallback", () => {
     await devsyExec("/repo", ["ls"]);
 
     expect(vi.mocked(spawn).mock.calls[0][0]).toBe("devsy");
+  });
+
+  function metadataLabel(entries: unknown[]) {
+    vi.mocked(spawnSync).mockReturnValue({
+      status: 0,
+      stdout: JSON.stringify(JSON.stringify(entries)),
+    } as never);
+  }
+  function directCall() {
+    const [binary, args] = vi.mocked(spawn).mock.calls[0] as unknown as [string, string[]];
+    return { binary, args };
+  }
+
+  it("applies the last remoteUser and merged remoteEnv from the container metadata", async () => {
+    writeWorkspaceResult(workspace.id, { MergedConfig: null });
+    vi.mocked(selectDevsyWorkspace).mockReturnValue(workspace);
+    vi.mocked(resolveRunningWorkspaceContainer).mockReturnValue(primary);
+    metadataLabel([
+      { remoteUser: "first", remoteEnv: { A: "1" } },
+      { remoteUser: "node", remoteEnv: { B: "2", C: "${x}" } },
+    ]);
+    mockExecExit(0);
+    await devsyExec("/repo", ["ls"]);
+    const { args } = directCall();
+    expect(args[args.indexOf("--user") + 1]).toBe("node");
+    expect(args).toEqual(expect.arrayContaining(["--env", "A=1", "B=2"]));
+    expect(args.join(" ")).not.toContain("C=");
+  });
+
+  it("uses the merged configuration's remoteUser when Devsy recorded one", async () => {
+    writeWorkspaceResult(workspace.id, {
+      MergedConfig: { workspaceFolder: "/workspaces/stale", remoteUser: "vscode" },
+    });
+    vi.mocked(selectDevsyWorkspace).mockReturnValue(workspace);
+    vi.mocked(resolveRunningWorkspaceContainer).mockReturnValue(primary);
+    mockExecExit(0);
+    await devsyExec("/repo", ["ls"]);
+    const { args } = directCall();
+    expect(args[args.indexOf("--user") + 1]).toBe("vscode");
+  });
+
+  it("refuses the fallback when a declared remote user cannot be resolved", async () => {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "devsy-exec-repo-"));
+    fs.mkdirSync(path.join(repo, ".devcontainer"));
+    fs.writeFileSync(
+      path.join(repo, ".devcontainer", "devcontainer.json"),
+      JSON.stringify({ remoteUser: "${localEnv:USER}" }),
+    );
+    writeWorkspaceResult(workspace.id, { MergedConfig: null });
+    vi.mocked(selectDevsyWorkspace).mockReturnValue(workspace);
+    vi.mocked(resolveRunningWorkspaceContainer).mockReturnValue(primary);
+    try {
+      await expect(devsyExec(repo, ["ls"])).rejects.toThrow("Cannot resolve the remote user");
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["no recorded result", undefined],
+    ["unparseable result", "{"],
+    ["merged config without a folder", JSON.stringify({ MergedConfig: {} })],
+  ])("keeps the Devsy path without positive evidence (%s)", async (_name, content) => {
+    if (content !== undefined) {
+      const directory = path.join(devsyHome, "contexts", "default", "workspaces", workspace.id);
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(path.join(directory, "workspace_result.json"), content);
+    }
+    vi.mocked(selectDevsyWorkspace).mockReturnValue(workspace);
+    vi.mocked(resolveRunningWorkspaceContainer).mockReturnValue(primary);
+    mockExecExit(0);
+    await devsyExec("/repo", ["ls"]);
+    expect(directCall().binary).toBe("devsy");
   });
 });

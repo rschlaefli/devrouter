@@ -579,7 +579,8 @@ describe("removeComposeProject", () => {
     state.volumes.push(volume("explicit-name", project));
     fakeDocker(state);
 
-    const steps = removeComposeProject(project, pin);
+    const ids = [`${project}-app-id`, `${project}-postgres-id`];
+    const steps = removeComposeProject(project, pin, { containerIds: ids, removeVolumes: true });
 
     expect(calls.filter((args) => args[2] === "rm").every((args) => args.includes("-f"))).toBe(
       true,
@@ -606,9 +607,33 @@ describe("removeComposeProject", () => {
   it("removes nothing on another Docker daemon", () => {
     const state = inventory(stack("replacement", "/repo/trees/a", "running"));
     fakeDocker(state);
-    expect(() => removeComposeProject("replacement", { ...pin, daemonId: "other" })).toThrow(
-      "Stop daemon changed.",
-    );
+    expect(() =>
+      removeComposeProject(
+        "replacement",
+        { ...pin, daemonId: "other" },
+        { containerIds: ["replacement-app-id", "replacement-postgres-id"] },
+      ),
+    ).toThrow("Stop daemon changed.");
+    expect(calls.some((args) => args[2] === "rm")).toBe(false);
+  });
+
+  it("keeps volumes unless the mirrored provider delete would remove them", () => {
+    const state = inventory(stack("replacement", "/repo/trees/a", "running"));
+    fakeDocker(state);
+    const steps = removeComposeProject("replacement", pin, {
+      containerIds: ["replacement-app-id", "replacement-postgres-id"],
+    });
+    expect(steps.some((step) => step.startsWith("removed-volume"))).toBe(false);
+    expect(state.volumes.map((v) => v.name)).toContain("replacement_pgdata");
+    expect(state.networks).toEqual([]);
+  });
+
+  it("removes nothing when the project population differs from the proven set", () => {
+    const state = inventory(stack("replacement", "/repo/trees/a", "running"));
+    fakeDocker(state);
+    expect(() =>
+      removeComposeProject("replacement", pin, { containerIds: ["replacement-app-id"] }),
+    ).toThrow("differs from the proven set");
     expect(calls.some((args) => args[2] === "rm")).toBe(false);
   });
 });

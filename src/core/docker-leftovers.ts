@@ -785,12 +785,15 @@ function removeMembers(
  * Removes the containers, `<project>_` volumes and unattached networks of one
  * Compose project whose ownership the caller has already proven, on the Docker
  * daemon the caller pinned. Containers are force-removed because the caller's
- * proof, not their state, authorizes it. Explicitly named or external volumes
- * and volumes another container mounts are never removed. Returns the step log.
+ * proof, not their state, authorizes it, and the project's population must equal
+ * the proven container IDs. Volumes are removed only when `removeVolumes` mirrors
+ * a provider delete that would have removed them; explicitly named or external
+ * volumes and volumes another container mounts are never removed.
  */
 export function removeComposeProject(
   project: string,
   pin: { endpoint: string; daemonId: string },
+  options: { containerIds: string[]; removeVolumes?: boolean },
 ): string[] {
   const run: DockerRunner = (args) => defaultDockerRunner(["--host", pin.endpoint, ...args]);
   const inventory = readDockerInventory(run);
@@ -798,13 +801,22 @@ export function removeComposeProject(
   const containers = inventory.containers.filter(
     (container) => container.labels[PROJECT_LABEL] === project,
   );
+  // The removal is bound to the population the caller proved.
+  const present = containers.map((container) => container.id).sort();
+  const proven = [...options.containerIds].sort();
+  if (present.length !== proven.length || present.some((id, index) => id !== proven[index]))
+    throw new Error("The Compose project population differs from the proven set.");
   const steps: string[] = [];
-  removeMembers(run, inventory, removableSet(project, "", containers, inventory), steps, true);
+  const members = removableSet(project, "", containers, inventory);
+  if (!options.removeVolumes) members.volumes = [];
+  removeMembers(run, inventory, members, steps, true);
   // Networks stay attached to running containers until those are removed, so
   // a second inventory finds the then-unattached project networks.
   const after = readDockerInventory(run);
   if (after.daemonId !== pin.daemonId) throw new Error("Stop daemon changed.");
-  removeMembers(run, after, removableSet(project, "", [], after), steps);
+  const rest = removableSet(project, "", [], after);
+  if (!options.removeVolumes) rest.volumes = [];
+  removeMembers(run, after, rest, steps);
   return steps;
 }
 

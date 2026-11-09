@@ -66,7 +66,7 @@ A retained runtime record whose runtime was deleted out of band does not block
 retired when no provider registration carries its ID with its UID (a recreated
 registration has a new UID), every baselined container is absent on the saved
 Docker daemon and its Compose project has no containers
-(`src/core/managed-stop-recovery.ts:retireStaleManagedRuntimeState`). Retirement
+(`src/core/managed-stop-recovery.ts:retireStaleManagedRuntimeState`), including the workspace-directory and provider-runner populations. It runs on the CLI and worker paths, never in the capacity controller, and not while an initialization or app-replacement attempt is retained. Retirement
 moves the record to a `retired/` directory beside the other managed-runtime
 records and prints one diagnostic line. Any surviving registration, container,
 project or daemon change, and a record without a stop baseline, keep the record
@@ -492,7 +492,7 @@ whose complete historical and provider evidence survives.
 | Command | Effect | Preserved state |
 | --- | --- | --- |
 | `devrouter stop <path>` | Stop the exact primary or linked environment, remove its canonical routes, and prove Traefik unloaded them. | Checkout and linked ownership record. |
-| `devrouter exec <path> -- <command>` | Execute once inside an already-running exact runtime. When Devsy's recorded result lacks a merged configuration or names a folder other than the primary container's checkout mount, it runs `docker exec --workdir <mount>` on that ownership-proven container instead of `devsy workspace exec`. | All lifecycle state; it does not start or recreate. |
+| `devrouter exec <path> -- <command>` | Execute once inside an already-running exact runtime. When Devsy's recorded result lacks a merged configuration or names a folder other than the primary container's checkout mount, it runs `docker exec --workdir <mount>` (with the remote user and environment from Devsy's merged configuration or the container's metadata label) on that ownership-proven container instead of `devsy workspace exec`; unreadable Devsy records keep the Devsy path. | All lifecycle state; it does not start or recreate. |
 | `devrouter env <path> [-- <command>]` | Report host endpoints, or run a host command with them exported. | Read-only for all lifecycle state. |
 | `devrouter workspace stop <target>` | Reversible stop for the resolved linked owner. | Worktree, branch, and owner record. |
 | `devrouter workspace down <target>` | Delete the exact provider runtime and routes, then remove an unlocked worktree that holds no local state unless retained. | Branch; worktree and record only when explicitly retained or teardown fails before removal. |
@@ -625,13 +625,14 @@ requires the exact provider registration owned by this checkout, one Compose
 project whose containers all carry a working directory inside the checkout and
 whose primary container bind-mounts it, no container of the checkout's Compose
 directory or the provider runner outside that project, and the saved endpoint
-and daemon (`proveOwnedCheckoutPopulation`). The provider delete runs with the
-same workspace token and Git-common-directory environment as `up`. If it still
-fails, `removeOwnedCheckoutPopulation` removes exactly that project's containers
-(provider-created last), `<project>_` volumes and unattached networks through
-the leftover helpers, skipping explicitly named, external and foreign-mounted
-volumes, and `devsy workspace delete --force` then drops the registration. After
-the stop is settled the retained runtime record is retired as above.
+and daemon (`proveOwnedCheckoutPopulation`). Provider stop and delete of a linked
+checkout run with the same workspace token and Git-common-directory environment
+as `up`. If provider delete still fails, `removeOwnedCheckoutPopulation` removes
+exactly the proven container set (provider-created last) and then the project's
+unattached networks through the leftover helpers, after refusing any difference
+between the project population and the proven set. Volumes stay, because
+devrouter's provider delete does not pass `--remove-volumes`. `devsy workspace
+delete --force` then drops the registration. After the stop is settled the retained runtime record is retired as above.
 
 - A Devsy start never performs implicit agent acquisition. Use
   `devrouter setup --yes --workspace-runtime devsy`, and rerun it after a Devsy

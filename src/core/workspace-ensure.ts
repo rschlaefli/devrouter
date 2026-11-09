@@ -1090,7 +1090,15 @@ export async function workspaceEnsure(
         : linked
           ? resolveLinkedTarget(repoPath)
           : resolvePrimaryTarget(repoPath);
-      if (!options.repair && resolveWorkspaceRuntimeOrDefault(repoPath) === "devsy")
+      if (
+        !options.repair &&
+        resolveWorkspaceRuntimeOrDefault(repoPath) === "devsy" &&
+        !readAppReplacementAttempt({
+          repoPath,
+          workspace: target.workspace ?? null,
+          provider: "devsy",
+        })
+      )
         withDevsyMutationLockSync("Retire stale managed runtime", repoPath, () =>
           retireStaleManagedRuntimeState(repoPath, target.workspace),
         );

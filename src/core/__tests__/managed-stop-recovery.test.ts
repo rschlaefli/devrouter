@@ -1137,6 +1137,8 @@ describe("stale managed runtime record retirement", () => {
     "devpod-registration",
     "container",
     "project",
+    "directory",
+    "runner",
     "daemon",
     "endpoint",
   ])("keeps the record when %s evidence remains", (failure) => {
@@ -1156,6 +1158,10 @@ describe("stale managed runtime record retirement", () => {
       vi.mocked(docker.inspectManagedStopContainers).mockImplementation(() => [
         structuredClone(containers[0] ?? ({ id: "e".repeat(64) } as never)),
       ]);
+    if (failure === "directory")
+      vi.mocked(docker.inspectManagedStopWorkspaceIds).mockReturnValue(["e".repeat(64)]);
+    if (failure === "runner")
+      vi.mocked(docker.inspectProviderRunnerContainers).mockReturnValue(["e".repeat(64)]);
     if (failure === "daemon") vi.mocked(docker.inspectManagedStopDaemon).mockReturnValue("other");
     if (failure === "endpoint")
       vi.mocked(docker.resolveManagedStopEndpoint).mockReturnValue("unix:///other.sock");
@@ -1243,6 +1249,7 @@ describe("explicit delete of a checkout-owned replacement population", () => {
     expect(removeComposeProject).toHaveBeenCalledWith(
       replacementProject,
       expect.objectContaining({ endpoint, daemonId: "synthetic-daemon" }),
+      { containerIds: containers.map((c) => c.id).sort() },
     );
 
     vi.mocked(removeComposeProject).mockClear();

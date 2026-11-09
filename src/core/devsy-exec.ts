@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -30,17 +30,36 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+type RecordedResult =
+  | { state: "unreadable" }
+  | { state: "no-merged-config" }
+  | {
+      state: "merged-config";
+      folder?: string;
+      remoteUser?: string;
+      remoteEnv: Record<string, string>;
+    };
+
+function literalEnvironment(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] =>
+        /^[A-Za-z_][A-Za-z0-9_]*$/.test(entry[0]) &&
+        typeof entry[1] === "string" &&
+        !entry[1].includes("${"),
+    ),
+  );
+}
+
 /**
- * The container workspace folder Devsy will chdir into, or undefined when its
- * recorded result carries none. A start that failed in a lifecycle hook leaves
- * `MergedConfig` null, and Devsy then falls back to `/workspaces/<id>`, which
- * does not exist for a Compose workspace with its own `workspaceFolder`.
+ * What Devsy recorded for its last start of this workspace. A start that failed
+ * in a lifecycle hook leaves `MergedConfig` null, and Devsy then falls back to
+ * `/workspaces/<id>`, which does not exist for a Compose workspace with its own
+ * `workspaceFolder`.
  */
-function devsyRecordedWorkspaceFolder(workspace: {
-  id: string;
-  context?: string;
-}): string | undefined {
-  if (!workspace.context) return undefined;
+function devsyRecordedResult(workspace: { id: string; context?: string }): RecordedResult {
+  if (!workspace.context) return { state: "unreadable" };
   try {
     const file = path.join(
       process.env.DEVSY_HOME || path.join(os.homedir(), ".devsy"),
@@ -50,44 +69,100 @@ function devsyRecordedWorkspaceFolder(workspace: {
       workspace.id,
       "workspace_result.json",
     );
-    if (fs.statSync(file).size > 16 * 1024 * 1024) return undefined;
+    if (fs.statSync(file).size > 16 * 1024 * 1024) return { state: "unreadable" };
     const result = JSON.parse(fs.readFileSync(file, "utf8"));
-    if (!result?.MergedConfig || typeof result.MergedConfig !== "object") return undefined;
-    const folder =
-      result.MergedConfig.workspaceFolder ?? result.SubstitutionContext?.ContainerWorkspaceFolder;
-    return typeof folder === "string" ? folder : undefined;
+    if (result === null || typeof result !== "object") return { state: "unreadable" };
+    const merged = result.MergedConfig;
+    if (merged === null) return { state: "no-merged-config" };
+    if (typeof merged !== "object") return { state: "unreadable" };
+    const folder = merged.workspaceFolder ?? result.SubstitutionContext?.ContainerWorkspaceFolder;
+    return {
+      state: "merged-config",
+      ...(typeof folder === "string" ? { folder } : {}),
+      ...(typeof merged.remoteUser === "string" ? { remoteUser: merged.remoteUser } : {}),
+      remoteEnv: literalEnvironment(merged.remoteEnv),
+    };
+  } catch {
+    return { state: "unreadable" };
+  }
+}
+
+/** The container's merged `devcontainer.metadata` label: last remoteUser wins, remoteEnv merges. */
+function containerMetadataIdentity(
+  containerId: string,
+  endpoint?: string,
+): { remoteUser?: string; remoteEnv: Record<string, string> } | undefined {
+  const inspected = spawnSync(
+    "docker",
+    [
+      ...(endpoint ? ["--host", endpoint] : []),
+      "inspect",
+      "--format",
+      '{{json (index .Config.Labels "devcontainer.metadata")}}',
+      containerId,
+    ],
+    { encoding: "utf8", ...(endpoint ? {} : networkDockerOptions()) },
+  );
+  if (inspected.status !== 0) return undefined;
+  try {
+    const label: unknown = JSON.parse(inspected.stdout);
+    if (label === null) return undefined;
+    const entries: unknown = JSON.parse(String(label));
+    if (!Array.isArray(entries)) return undefined;
+    let remoteUser: string | undefined;
+    let remoteEnv: Record<string, string> = {};
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object") continue;
+      if (typeof entry.remoteUser === "string") remoteUser = entry.remoteUser;
+      remoteEnv = { ...remoteEnv, ...literalEnvironment(entry.remoteEnv) };
+    }
+    return { ...(remoteUser ? { remoteUser } : {}), remoteEnv };
   } catch {
     return undefined;
   }
 }
 
-/** Remote user and literal remote environment declared by the checkout's Dev Container source. */
-function declaredRemoteIdentity(repoPath: string): { user?: string; env: string[] } {
+/**
+ * Remote user and environment Devsy would apply: its merged configuration when
+ * it exists, otherwise the container's metadata label. A user the checkout's
+ * Dev Container source declares but this cannot resolve refuses the fallback
+ * instead of silently running as the container's default user.
+ */
+function resolveRemoteIdentity(
+  repoPath: string,
+  result: RecordedResult,
+  container: { id: string },
+  endpoint?: string,
+): { user?: string; env: Record<string, string> } {
+  if (result.state === "merged-config" && result.remoteUser)
+    return { user: result.remoteUser, env: result.remoteEnv };
+  const metadata = containerMetadataIdentity(container.id, endpoint);
+  const env = {
+    ...(result.state === "merged-config" ? result.remoteEnv : {}),
+    ...(metadata?.remoteEnv ?? {}),
+  };
+  if (metadata?.remoteUser) return { user: metadata.remoteUser, env };
+  let declared: unknown;
   try {
     const { source } = readDevcontainerConfig(repoPath);
-    const user = source.remoteUser ?? source.containerUser;
-    const remoteEnv =
-      source.remoteEnv && typeof source.remoteEnv === "object"
-        ? Object.entries(source.remoteEnv as Record<string, unknown>)
-        : [];
-    return {
-      ...(typeof user === "string" && user && !user.includes("${") ? { user } : {}),
-      env: remoteEnv.flatMap(([name, value]) =>
-        /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && typeof value === "string" && !value.includes("${")
-          ? ["--env", `${name}=${value}`]
-          : [],
-      ),
-    };
+    declared = source.remoteUser ?? source.containerUser;
+    if (!metadata) Object.assign(env, literalEnvironment(source.remoteEnv));
   } catch {
-    return { env: [] };
+    return { env };
   }
+  if (declared === undefined) return { env };
+  if (typeof declared === "string" && declared && !declared.includes("${"))
+    return { user: declared, env };
+  throw new Error(
+    "Cannot resolve the remote user declared by the Dev Container source for a direct exec; run 'devrouter ensure' to repair the workspace first.",
+  );
 }
 
 /**
- * When Devsy's recorded workspace folder is missing or differs from where the
- * primary container really mounts the checkout, Devsy would chdir into a
- * folder that does not exist. Run on the exact primary container instead, in
- * the mount destination.
+ * Devsy would chdir into a folder that does not exist when its recorded result
+ * has no merged configuration or names a folder other than where the primary
+ * container mounts the checkout. Only that positive evidence selects a direct
+ * `docker exec` on the exact primary container, in the mount destination.
  */
 function directExecCommand(
   repoPath: string,
@@ -95,6 +170,8 @@ function directExecCommand(
   command: string[],
   retainedProof?: DevsyExecProof,
 ): { args: string[]; options: { env?: NodeJS.ProcessEnv } } | undefined {
+  const result = devsyRecordedResult(workspace);
+  if (result.state === "unreadable") return undefined;
   let container: { id: string; workspacePath: string } | undefined;
   try {
     container = retainedProof
@@ -103,9 +180,13 @@ function directExecCommand(
   } catch {
     return undefined;
   }
-  if (!container || container.workspacePath === devsyRecordedWorkspaceFolder(workspace))
+  if (!container) return undefined;
+  if (
+    result.state === "merged-config" &&
+    (result.folder === undefined || result.folder === container.workspacePath)
+  )
     return undefined;
-  const identity = declaredRemoteIdentity(repoPath);
+  const identity = resolveRemoteIdentity(repoPath, result, container, retainedProof?.endpoint);
   return {
     args: [
       ...(retainedProof ? ["--host", retainedProof.endpoint] : []),
@@ -115,7 +196,7 @@ function directExecCommand(
       "--workdir",
       container.workspacePath,
       ...(identity.user ? ["--user", identity.user] : []),
-      ...identity.env,
+      ...Object.entries(identity.env).flatMap(([name, value]) => ["--env", `${name}=${value}`]),
       container.id,
       ...command,
     ],

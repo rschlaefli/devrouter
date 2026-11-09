@@ -954,8 +954,15 @@ export function retireStaleManagedRuntimeState(
       baseline.endpoint,
       baseline.containers.map((container) => container.id),
     );
-    if (inspectManagedStopContainers(baseline.project, baseline.endpoint).length !== 0)
-      throw new Error("The recorded Compose project still has containers.");
+    if (
+      inspectManagedStopContainers(baseline.project, baseline.endpoint).length !== 0 ||
+      inspectManagedStopWorkspaceIds(baseline.endpoint, baseline.composeDirectory).length !== 0 ||
+      inspectProviderRunnerContainers(
+        baseline.endpoint,
+        managedRunnerId(baseline.uid, baseline.providerId),
+      ).length !== 0
+    )
+      throw new Error("The recorded workspace population still has containers.");
   };
   try {
     observe();
@@ -1093,7 +1100,9 @@ export function removeOwnedCheckoutPopulation(
     return undefined;
   }
   claimLifecycleEffect();
-  return removeComposeProject(population.project, population);
+  return removeComposeProject(population.project, population, {
+    containerIds: population.containerIds,
+  });
 }
 
 /** Caller holds the workspace and provider locks. Every effect claims the current stop fence. */

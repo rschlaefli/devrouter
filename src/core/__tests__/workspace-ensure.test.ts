@@ -1037,6 +1037,15 @@ describe("workspaceEnsure", () => {
     });
   }
 
+  it("does not retire a runtime record while an app-replacement attempt is retained", async () => {
+    mockColdManagedDevsyFailure(true, 0);
+    vi.mocked(readAppReplacementAttempt).mockReturnValue({} as never);
+    await workspaceEnsure(tmpDir, { containerTimeoutMs: 0, httpTimeoutMs: 0 }).catch(
+      () => undefined,
+    );
+    expect(retireStaleManagedRuntimeState).not.toHaveBeenCalled();
+  });
+
   it("retains failed fresh initialization before any managed-process rollback", async () => {
     mockColdManagedDevsyFailure(true, 0);
     const state: ManagedRuntimeState = {
