@@ -14,6 +14,9 @@ import {
   restoreRecordedManagedDevcontainerConfig,
   stopRetainedManagedDevsyWorkspace,
 } from "../managed-devsy-stop";
+import { removeOwnedCheckoutPopulation } from "../managed-stop-recovery";
+import { isLinkedWorktree, resolveWorktreeWorkspace } from "../workspace";
+import { resolveGitCommonDir } from "../workspace-ownership";
 
 const paths = vi.hoisted(() => ({ home: "/tmp/devrouter-devsy-mutation-test" }));
 
@@ -21,6 +24,16 @@ vi.mock("node:child_process", () => ({ spawn: vi.fn(), spawnSync: vi.fn() }));
 vi.mock("../managed-devsy-stop", () => ({
   restoreRecordedManagedDevcontainerConfig: vi.fn(),
   stopRetainedManagedDevsyWorkspace: vi.fn(),
+}));
+vi.mock("../managed-stop-recovery", () => ({ removeOwnedCheckoutPopulation: vi.fn() }));
+vi.mock("../workspace", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../workspace")>()),
+  isLinkedWorktree: vi.fn(() => false),
+  resolveWorktreeWorkspace: vi.fn(),
+}));
+vi.mock("../workspace-ownership", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../workspace-ownership")>()),
+  resolveGitCommonDir: vi.fn(),
 }));
 vi.mock("../devsy-agent", async (importOriginal) => ({
   ...(await importOriginal()),
@@ -41,6 +54,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(stopRetainedManagedDevsyWorkspace).mockReset().mockReturnValue(false);
   vi.mocked(restoreRecordedManagedDevcontainerConfig).mockReset().mockReturnValue(false);
+  vi.mocked(removeOwnedCheckoutPopulation).mockReset().mockReturnValue(undefined);
+  vi.mocked(isLinkedWorktree).mockReset().mockReturnValue(false);
   vi.mocked(requireReadyDevsyAgent).mockReturnValue({
     version: "1.16.2",
     binaryPath: "/managed/devsy-agent",
@@ -319,6 +334,61 @@ describe("Devsy mutation adapter", () => {
       expect.arrayContaining(["--force"]),
       expect.anything(),
     );
+  });
+
+  it("supplies the linked workspace environment to the provider delete", () => {
+    vi.mocked(isLinkedWorktree).mockReturnValue(true);
+    vi.mocked(resolveWorktreeWorkspace).mockReturnValue("feature");
+    vi.mocked(resolveGitCommonDir).mockReturnValue("/repo/.git");
+    vi.mocked(spawnSync).mockImplementation(
+      (_command, args) =>
+        ({
+          status: 0,
+          stdout: (args as string[])[1] === "list" ? JSON.stringify([owned]) : "",
+          stderr: "",
+        }) as never,
+    );
+    // The registration never disappears in this fixture; only the delete call matters.
+    expect(() => deleteOwnedDevsyWorkspace("feature", "/repo/feature")).toThrow();
+    const options = vi
+      .mocked(spawnSync)
+      .mock.calls.find(([, args]) => (args as string[])[1] === "delete")?.[2] as {
+      env: NodeJS.ProcessEnv;
+    };
+    expect(options.env).toMatchObject({
+      WORKSPACE: "feature",
+      DEVROUTER_WORKSPACE: "feature",
+      DEVROUTER_GIT_COMMON_DIR: "/repo/.git",
+      DEVCONTAINER_COMPOSE_OVERLAY: "docker-compose.devrouter.yml",
+    });
+  });
+
+  describe("failed provider delete with an owned population", () => {
+    const present = { id: "feature", source: { localFolder: process.cwd() } };
+
+    it("removes the proven population, then force-deletes the registration", () => {
+      failOrdinaryDelete("Stopped", present);
+      vi.mocked(removeOwnedCheckoutPopulation).mockReturnValue(["removed-container:abc"]);
+      expect(deleteOwnedDevsyWorkspace("feature", process.cwd())).toEqual({ status: "changed" });
+      expect(removeOwnedCheckoutPopulation).toHaveBeenCalledWith(process.cwd(), "feature");
+      expect(spawnSync).toHaveBeenCalledWith(
+        "devsy",
+        ["workspace", "delete", "feature", "--force", "--ignore-not-found"],
+        expect.anything(),
+      );
+    });
+
+    it("keeps the original failure when ownership is not proven", () => {
+      failOrdinaryDelete("Stopped", present);
+      expect(() => deleteOwnedDevsyWorkspace("feature", process.cwd())).toThrow(
+        "devcontainer config not found",
+      );
+      expect(spawnSync).not.toHaveBeenCalledWith(
+        "devsy",
+        expect.arrayContaining(["--force"]),
+        expect.anything(),
+      );
+    });
   });
 
   it("fails closed on a still-running workspace after delete", () => {

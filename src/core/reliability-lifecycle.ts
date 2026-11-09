@@ -46,6 +46,7 @@ import {
   captureManagedAppReplacementProof,
   managedStopRouteReferences,
   proveManagedStop,
+  proveOwnedCheckoutPopulation,
   recoverManagedStopBaseline,
   retireStaleManagedRuntimeState,
 } from "./managed-stop-recovery";
@@ -112,6 +113,7 @@ let lockHeld = false;
 let stopProjects: string[] = [];
 let initialStopAbsence: ReturnType<typeof proveInitialManagedDevsyAbsence>;
 let stopBaselineState: ManagedRuntimeState | undefined;
+let deletedOwnedReplacement = false;
 
 const BUSY_LIFECYCLE_WAIT_MS = 30 * 60 * 1000;
 const BUSY_LIFECYCLE_POLL_MS = 250;
@@ -1935,7 +1937,22 @@ export async function executeLifecycleWorker<T>(
                     markStopWorkStarted,
                   )
                 : retained;
-              proveManagedStop(candidate);
+              try {
+                proveManagedStop(candidate);
+              } catch (error) {
+                // Explicit delete authority may destroy a replacement population
+                // that is provably this checkout's own; a plain stop never adopts one.
+                if (!request.options.delete || !candidate.stopBaseline) throw error;
+                try {
+                  proveOwnedCheckoutPopulation(candidate.repoPath, candidate.devpodId, {
+                    endpoint: candidate.stopBaseline.endpoint,
+                    daemonId: candidate.stopBaseline.daemonId,
+                  });
+                } catch {
+                  throw error;
+                }
+                deletedOwnedReplacement = true;
+              }
               return candidate;
             },
           );
@@ -2185,6 +2202,10 @@ export function proveLifecycleStopped(): void {
         });
       });
     }
+    // A deleted replacement leaves a record naming a runtime that no longer
+    // exists; once the stop is settled, the same absence evidence retires it.
+    if (deletedOwnedReplacement)
+      retireStaleManagedRuntimeState(request.repoPath, request.identity.workspace ?? undefined);
   };
   if (stopBaselineState || initialStopAbsence)
     withDevsyMutationLock("Settle managed stop", request.repoPath, settle);

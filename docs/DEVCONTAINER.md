@@ -816,7 +816,10 @@ devrouter ensure .
 Do not replace these commands with raw DevPod or Devsy `up`/`stop`/`delete`
 calls. Raw provider calls bypass devrouter's machine-wide mutation lock and exact
 ID/path postcondition checks. Use `devrouter stop . --delete` for explicit
-exact-owner workspace runtime cleanup while preserving the checkout.
+exact-owner workspace runtime cleanup while preserving the checkout. It also
+deletes a workspace population that Devsy recreated after the retained record
+was written, provided every container provably belongs to this checkout; a
+plain `devrouter stop .` still refuses such an unrecorded population.
 
 The same command handles a linked worktree. It starts or attaches the exact-path
 workspace runtime, recreates one stale runtime once,

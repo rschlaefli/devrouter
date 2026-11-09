@@ -617,7 +617,21 @@ retained generation is unchanged. Every other combination keeps the
 retained-population refusal, so a surviving workload or an adopted replacement is
 never reported as a completed stop. If provider stop
 fails, eligible residual cleanup may still run, but its original failure remains
-nonzero and routes remain intact. This does not change legacy or delete paths.
+nonzero and routes remain intact. This does not change legacy paths.
+
+`stop --delete` is explicit authority to destroy this checkout's runtime, so it
+may adopt a replacement population that the plain-stop refusal rejects. That
+requires the exact provider registration owned by this checkout, one Compose
+project whose containers all carry a working directory inside the checkout and
+whose primary container bind-mounts it, no container of the checkout's Compose
+directory or the provider runner outside that project, and the saved endpoint
+and daemon (`proveOwnedCheckoutPopulation`). The provider delete runs with the
+same workspace token and Git-common-directory environment as `up`. If it still
+fails, `removeOwnedCheckoutPopulation` removes exactly that project's containers
+(provider-created last), `<project>_` volumes and unattached networks through
+the leftover helpers, skipping explicitly named, external and foreign-mounted
+volumes, and `devsy workspace delete --force` then drops the registration. After
+the stop is settled the retained runtime record is retired as above.
 
 - A Devsy start never performs implicit agent acquisition. Use
   `devrouter setup --yes --workspace-runtime devsy`, and rerun it after a Devsy

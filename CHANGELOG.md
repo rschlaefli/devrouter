@@ -17,6 +17,14 @@ All notable changes to this project are documented in this file.
   absent on the same Docker daemon). The record moves to
   `managed-runtime/retired/` with a diagnostic line; fresh-initialization
   attempt fences are preserved.
+- `devrouter stop --delete` deletes a workspace population that Devsy recreated
+  after devrouter recorded its baseline, instead of refusing with "Replacement
+  stop observed a remaining workspace population", when the registration and
+  every container provably belong to the exact checkout. Provider delete now
+  receives the same workspace environment as `up`; if it still fails, devrouter
+  removes only the proven Compose project's containers, `<project>_` volumes
+  and networks and then force-deletes the registration. Plain `stop` keeps its
+  refusal.
 
 ## [0.6.8] - 2026-11-07
 

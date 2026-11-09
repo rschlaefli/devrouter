@@ -18,6 +18,7 @@ import {
   restoreRecordedManagedDevcontainerConfig,
   stopRetainedManagedDevsyWorkspace,
 } from "./managed-devsy-stop";
+import { removeOwnedCheckoutPopulation } from "./managed-stop-recovery";
 import {
   assertNetworkProviderBinding,
   type NetworkProviderBinding,
@@ -28,6 +29,8 @@ import {
 import { networkProviderEffectOptions } from "./network-provider-effect";
 import { claimLifecycleEffect } from "./reliability-context";
 import { DEVROUTER_HOME } from "./router";
+import { isLinkedWorktree, resolveWorktreeWorkspace } from "./workspace";
+import { resolveGitCommonDir } from "./workspace-ownership";
 
 const DEVSY_MUTATION_LOCK_FILE = path.join(DEVROUTER_HOME, "devsy-mutation.lock");
 /**
@@ -172,6 +175,35 @@ function runDevsyUp(
   });
 }
 
+/**
+ * The provider re-reads the checkout's Compose files for stop and delete, and
+ * the managed overlay interpolates the workspace token and Git common
+ * directory, so a linked checkout supplies the environment `up` supplies.
+ */
+function withLinkedWorkspaceEnvironment(
+  base: NodeJS.ProcessEnv | undefined,
+  repoPath: string,
+): NodeJS.ProcessEnv | undefined {
+  let token: string | undefined;
+  let gitCommonDir: string | undefined;
+  try {
+    if (isLinkedWorktree(repoPath)) {
+      token = resolveWorktreeWorkspace(repoPath);
+      gitCommonDir = resolveGitCommonDir(repoPath);
+    }
+  } catch {
+    return base;
+  }
+  if (!token || !gitCommonDir) return base;
+  return {
+    ...(base ?? process.env),
+    WORKSPACE: token,
+    DEVROUTER_WORKSPACE: token,
+    DEVROUTER_GIT_COMMON_DIR: gitCommonDir,
+    DEVCONTAINER_COMPOSE_OVERLAY: "docker-compose.devrouter.yml",
+  };
+}
+
 function runDevsyAction(
   action: "stop" | "delete",
   devsyId: string,
@@ -186,9 +218,10 @@ function runDevsyAction(
   const binding = repoPath
     ? networkProviderEffectOptions("devsy", devsyId, repoPath)
     : { args: [] };
+  const env = repoPath ? withLinkedWorkspaceEnvironment(binding.env, repoPath) : binding.env;
   const result = spawnSync("devsy", ["workspace", ...args, ...binding.args], {
     encoding: "utf-8",
-    ...(binding.env ? { env: binding.env } : {}),
+    ...(env ? { env } : {}),
   });
   if (result.status !== 0) {
     throw new Error(
@@ -261,7 +294,20 @@ function mutateOwnedDevsyWorkspace(
       runDevsyAction(action, devsyId, false, worktreePath);
     } catch (error) {
       if (action !== "delete") throw error;
-      deleteVanishedCheckoutRegistration(devsyId, worktreePath, error);
+      if (checkoutVanished(worktreePath)) {
+        deleteVanishedCheckoutRegistration(devsyId, worktreePath, error);
+        return { status: "changed" as const };
+      }
+      // The provider could not delete (for example its generated Compose files
+      // are gone). Explicit delete authority may remove a population proven to
+      // belong to this checkout alone; the registration is then dropped.
+      if (!removeOwnedCheckoutPopulation(worktreePath, devsyId)) throw error;
+      runDevsyAction("delete", devsyId, true, worktreePath);
+      if (inspectExactOwnership(devsyId, worktreePath).status !== "absent") {
+        throw new Error(
+          `Devsy workspace '${devsyId}' still owns '${worktreePath}' after forced provider delete.`,
+        );
+      }
       return { status: "changed" as const };
     }
 

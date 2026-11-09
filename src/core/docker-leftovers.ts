@@ -59,7 +59,13 @@ export type DockerRunner = (args: string[]) => {
 };
 
 const defaultDockerRunner: DockerRunner = (args) => {
+  const env = { ...process.env };
+  if (args[0] === "--host") {
+    delete env.DOCKER_CONTEXT;
+    delete env.DOCKER_HOST;
+  }
   const result = spawnSync("docker", args, {
+    env,
     encoding: "utf-8",
     timeout: 60_000,
     maxBuffer: 256 * 1024 * 1024,
@@ -742,6 +748,67 @@ function removeMember(run: DockerRunner, args: string[], step: string, steps: st
 }
 
 /**
+ * Containers first, the provider-created one last: it proves which checkout the
+ * stack belongs to, so a rerun after a partial removal can still attribute the
+ * remaining containers. Then the listed volumes, then networks.
+ */
+function removeMembers(
+  run: DockerRunner,
+  inventory: DockerInventory,
+  current: DockerLeftover,
+  steps: string[],
+  forceContainers = false,
+): void {
+  const proves = (id: string) =>
+    Boolean(inventory.containers.find((container) => container.id === id)?.labels[PROVIDER_LABEL]);
+  const ordered = [
+    ...current.containers.filter((container) => !proves(container.id)),
+    ...current.containers.filter((container) => proves(container.id)),
+  ];
+  for (const container of ordered) {
+    removeMember(
+      run,
+      forceContainers ? ["rm", "-f", container.id] : ["rm", container.id],
+      `container:${container.id}`,
+      steps,
+    );
+  }
+  for (const volume of current.volumes) {
+    removeMember(run, ["volume", "rm", volume.name], `volume:${volume.name}`, steps);
+  }
+  for (const network of current.networks) {
+    removeMember(run, ["network", "rm", network.id], `network:${network.name}`, steps);
+  }
+}
+
+/**
+ * Removes the containers, `<project>_` volumes and unattached networks of one
+ * Compose project whose ownership the caller has already proven, on the Docker
+ * daemon the caller pinned. Containers are force-removed because the caller's
+ * proof, not their state, authorizes it. Explicitly named or external volumes
+ * and volumes another container mounts are never removed. Returns the step log.
+ */
+export function removeComposeProject(
+  project: string,
+  pin: { endpoint: string; daemonId: string },
+): string[] {
+  const run: DockerRunner = (args) => defaultDockerRunner(["--host", pin.endpoint, ...args]);
+  const inventory = readDockerInventory(run);
+  if (inventory.daemonId !== pin.daemonId) throw new Error("Stop daemon changed.");
+  const containers = inventory.containers.filter(
+    (container) => container.labels[PROJECT_LABEL] === project,
+  );
+  const steps: string[] = [];
+  removeMembers(run, inventory, removableSet(project, "", containers, inventory), steps, true);
+  // Networks stay attached to running containers until those are removed, so
+  // a second inventory finds the then-unattached project networks.
+  const after = readDockerInventory(run);
+  if (after.daemonId !== pin.daemonId) throw new Error("Stop daemon changed.");
+  removeMembers(run, after, removableSet(project, "", [], after), steps);
+  return steps;
+}
+
+/**
  * Applies an approved leftover manifest. Without `yes` it is a dry run. Each
  * project is re-derived inside both provider mutation locks immediately before
  * removal; a changed project is skipped and the others continue. Containers go
@@ -796,31 +863,7 @@ export function applyLeftoverManifest(
           outcome.reason = `${current.containers.length} container(s), ${current.volumes.length} volume(s), ${current.networks.length} network(s)`;
           return;
         }
-        // The provider-created container proves which checkout the stack
-        // belongs to, so it goes last: a rerun after a partial removal can
-        // then still attribute the remaining containers.
-        const proves = (id: string) =>
-          Boolean(
-            inventory.containers.find((container) => container.id === id)?.labels[PROVIDER_LABEL],
-          );
-        const ordered = [
-          ...current.containers.filter((container) => !proves(container.id)),
-          ...current.containers.filter((container) => proves(container.id)),
-        ];
-        for (const container of ordered) {
-          removeMember(run, ["rm", container.id], `container:${container.id}`, outcome.steps);
-        }
-        for (const volume of current.volumes) {
-          removeMember(run, ["volume", "rm", volume.name], `volume:${volume.name}`, outcome.steps);
-        }
-        for (const network of current.networks) {
-          removeMember(
-            run,
-            ["network", "rm", network.id],
-            `network:${network.name}`,
-            outcome.steps,
-          );
-        }
+        removeMembers(run, inventory, current, outcome.steps);
         writeLeftoverReceipt(
           (dependencies.commonDir ?? gitCommonDir)(manifest.repo),
           manifestSha256,

@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -11,9 +12,14 @@ import {
   findDockerLeftovers,
   type LeftoverContext,
   readLeftoverManifest,
+  removeComposeProject,
 } from "../docker-leftovers";
 import { readManifest, sha256Hex } from "../worktree-reclaim";
 
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  spawnSync: vi.fn(),
+}));
 vi.mock("../devsy-mutation", () => ({ withMutationLock: vi.fn() }));
 vi.mock("../devpod-mutation", () => ({ withMutationLock: vi.fn() }));
 
@@ -478,5 +484,131 @@ describe("leftover manifests", () => {
     expect(apply(manifest, live, ctx, { yes: true }).targets).toMatchObject([
       { status: "skipped", code: "daemon-mismatch" },
     ]);
+  });
+});
+
+describe("removeComposeProject", () => {
+  const pin = { endpoint: "unix:///synthetic.sock", daemonId: "daemon-1" };
+  const calls: string[][] = [];
+
+  /** A stateful stand-in for the pinned Docker daemon built from an inventory. */
+  function fakeDocker(state: DockerInventory) {
+    calls.length = 0;
+    vi.mocked(spawnSync).mockImplementation(((_binary: string, args: string[]) => {
+      calls.push(args);
+      const [host, endpoint, ...rest] = args;
+      expect([host, endpoint]).toEqual(["--host", pin.endpoint]);
+      const ok = (stdout = "") => ({ status: 0, stdout, stderr: "" });
+      const [command, sub] = rest;
+      if (command === "info") return ok(`${state.daemonId}\n`);
+      if (command === "ps") return ok(state.containers.map((c) => c.id).join("\n"));
+      if (command === "container" && sub === "inspect") {
+        const ids = rest.slice(2);
+        return ok(
+          JSON.stringify(
+            state.containers
+              .filter((c) => ids.includes(c.id))
+              .map((c) => ({
+                Id: c.id,
+                Name: `/${c.name}`,
+                State: { Status: c.state },
+                Config: { Labels: c.labels },
+                Mounts: c.volumes.map((name) => ({ Type: "volume", Name: name })),
+              })),
+          ),
+        );
+      }
+      if (command === "volume" && sub === "ls")
+        return ok(state.volumes.map((v) => v.name).join("\n"));
+      if (command === "volume" && sub === "inspect")
+        return ok(
+          JSON.stringify(
+            state.volumes
+              .filter((v) => rest.includes(v.name))
+              .map((v) => ({ Name: v.name, Labels: v.labels, CreatedAt: v.createdAt })),
+          ),
+        );
+      if (command === "network" && sub === "ls")
+        return ok(state.networks.map((n) => n.id).join("\n"));
+      if (command === "network" && sub === "inspect")
+        return ok(
+          JSON.stringify(
+            state.networks
+              .filter((n) => rest.includes(n.id))
+              .map((n) => ({
+                Id: n.id,
+                Name: n.name,
+                Labels: n.labels,
+                Containers: Object.fromEntries(
+                  state.containers
+                    .filter(
+                      (c) =>
+                        c.state === "running" &&
+                        c.labels["com.docker.compose.project"] ===
+                          n.labels["com.docker.compose.project"],
+                    )
+                    .map((c) => [c.id, {}]),
+                ),
+              })),
+          ),
+        );
+      if (command === "rm") {
+        const id = rest[rest.length - 1];
+        state.containers = state.containers.filter((c) => c.id !== id);
+        return ok();
+      }
+      if (command === "volume" && sub === "rm") {
+        state.volumes = state.volumes.filter((v) => v.name !== rest[2]);
+        return ok();
+      }
+      if (command === "network" && sub === "rm") {
+        state.networks = state.networks.filter((n) => n.id !== rest[2]);
+        return ok();
+      }
+      throw new Error(`unexpected docker ${rest.join(" ")}`);
+    }) as never);
+  }
+
+  it("force-removes the project's running containers, then its volumes and networks", () => {
+    const project = "replacement";
+    const state = inventory([
+      ...stack(project, "/repo/trees/a", "running"),
+      ...stack("other", "/repo/trees/b", "running"),
+    ]);
+    // An explicitly named volume carries the project label without its prefix.
+    state.volumes.push(volume("explicit-name", project));
+    fakeDocker(state);
+
+    const steps = removeComposeProject(project, pin);
+
+    expect(calls.filter((args) => args[2] === "rm").every((args) => args.includes("-f"))).toBe(
+      true,
+    );
+    expect(steps).toEqual([
+      `removed-container:${project}-postgres-id`,
+      `removed-container:${project}-app-id`,
+      `removed-volume:${project}_node_modules`,
+      `removed-volume:${project}_pgdata`,
+      `removed-network:${project}_default`,
+    ]);
+    expect(state.containers.map((c) => c.labels["com.docker.compose.project"])).toEqual([
+      "other",
+      "other",
+    ]);
+    expect(state.volumes.map((v) => v.name)).toEqual([
+      "other_node_modules",
+      "other_pgdata",
+      "explicit-name",
+    ]);
+    expect(state.networks.map((n) => n.id)).toEqual(["other-net-id"]);
+  });
+
+  it("removes nothing on another Docker daemon", () => {
+    const state = inventory(stack("replacement", "/repo/trees/a", "running"));
+    fakeDocker(state);
+    expect(() => removeComposeProject("replacement", { ...pin, daemonId: "other" })).toThrow(
+      "Stop daemon changed.",
+    );
+    expect(calls.some((args) => args[2] === "rm")).toBe(false);
   });
 });
