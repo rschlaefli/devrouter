@@ -11,6 +11,12 @@ All notable changes to this project are documented in this file.
   `postCreateCommand`) or names a different folder. It then executes on the
   ownership-proven primary container with `docker exec --workdir` instead of
   failing with an OCI `chdir` error. Healthy workspaces keep the Devsy path.
+- `ensure` and `ensure --initialize-new` retire a stale managed-runtime record
+  automatically once its runtime is provably gone (no matching provider
+  registration, every baselined container and the recorded Compose project
+  absent on the same Docker daemon). The record moves to
+  `managed-runtime/retired/` with a diagnostic line; fresh-initialization
+  attempt fences are preserved.
 
 ## [0.6.8] - 2026-11-07
 

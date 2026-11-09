@@ -32,6 +32,7 @@ import { proveManagedComposePopulation } from "./managed-compose-population";
 import { resolveManagedPostStartPlan } from "./managed-post-start";
 import {
   type ManagedRuntimeState,
+  managedRuntimeStatePath,
   readManagedRuntimeState,
   writeManagedRuntimeState,
 } from "./managed-runtime-state";
@@ -900,6 +901,82 @@ export function proveManagedStop(state: ManagedRuntimeState): ManagedStopProof {
   )
     throw new Error("Absent stop authority changed during inspection.");
   return { status: "proven-absent", containers: [] };
+}
+
+/**
+ * A provider workspace deleted out of band leaves a retained runtime record
+ * that names a runtime which no longer exists, and that record then blocks
+ * ordinary and fresh-bootstrap ensure. The record is retired only on positive
+ * evidence that nothing it names survives: no provider registration carries
+ * its ID with its UID (a recreated registration has a new UID), every
+ * baselined container is absent on the saved daemon, and its Compose project
+ * has no containers. Any doubt, including unreadable Docker or provider
+ * state, leaves the record untouched. Retirement archives the record beside
+ * its siblings and never touches lifecycle journals or fresh-bootstrap
+ * attempt fences. Caller holds the provider lock.
+ */
+export function retireStaleManagedRuntimeState(
+  repoPath: string,
+  workspace?: string,
+): string | undefined {
+  let state: ManagedRuntimeState | undefined;
+  let baseline: ManagedStopBaseline;
+  try {
+    state = readManagedRuntimeState(repoPath, workspace);
+    if (!state?.stopBaseline) return undefined;
+    baseline = validateManagedStopBaseline(state.stopBaseline, state);
+  } catch {
+    return undefined;
+  }
+  const retained = state;
+  const observe = () => {
+    for (const entries of [
+      listDevsyWorkspaces(),
+      listDevpodWorkspacesRaw({ allowMissingExecutable: true }),
+    ] as { id: string; uid?: string }[][]) {
+      if (
+        entries.some(
+          (entry) =>
+            entry.id === retained.devpodId &&
+            (entry.uid === undefined || entry.uid === "" || entry.uid === baseline.uid),
+        )
+      )
+        throw new Error("The recorded provider registration still exists.");
+    }
+    if (resolveManagedStopEndpoint() !== baseline.endpoint)
+      throw new Error("Stop endpoint changed.");
+    if (inspectManagedStopDaemon(baseline.endpoint) !== baseline.daemonId)
+      throw new Error("Stop daemon changed.");
+    assertManagedStopContainersAbsent(
+      baseline.endpoint,
+      baseline.containers.map((container) => container.id),
+    );
+    if (inspectManagedStopContainers(baseline.project, baseline.endpoint).length !== 0)
+      throw new Error("The recorded Compose project still has containers.");
+  };
+  try {
+    observe();
+    if (!isDeepStrictEqual(readManagedRuntimeState(repoPath, workspace), retained))
+      return undefined;
+    observe();
+  } catch {
+    return undefined;
+  }
+  const source = managedRuntimeStatePath(repoPath, workspace);
+  if (!isDeepStrictEqual(readManagedRuntimeState(repoPath, workspace), retained)) return undefined;
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const archive = path.join(
+    path.dirname(source),
+    "retired",
+    `${path.basename(source, ".json")}-${stamp}.json`,
+  );
+  claimLifecycleEffect();
+  fs.mkdirSync(path.dirname(archive), { recursive: true });
+  fs.renameSync(source, archive);
+  process.stderr.write(
+    `Retired stale managed runtime record for '${repoPath}' (Compose project '${retained.composeProject}', provider workspace '${retained.devpodId}'): the recorded runtime no longer exists. Archived at ${archive}.\n`,
+  );
+  return archive;
 }
 
 /** Caller holds the workspace and provider locks. Every effect claims the current stop fence. */

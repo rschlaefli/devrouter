@@ -61,6 +61,18 @@ stop proofs still apply; the repository owns database semantics. See the
 [fresh initialization contract](../DEVCONTAINER.md#initialize-a-new-disposable-managed-environment)
 for qualified contexts, volume bindings and failure recovery.
 
+A retained runtime record whose runtime was deleted out of band does not block
+`ensure` or `ensure --initialize-new`. Before either proceeds, the record is
+retired when no provider registration carries its ID with its UID (a recreated
+registration has a new UID), every baselined container is absent on the saved
+Docker daemon and its Compose project has no containers
+(`src/core/managed-stop-recovery.ts:retireStaleManagedRuntimeState`). Retirement
+moves the record to a `retired/` directory beside the other managed-runtime
+records and prints one diagnostic line. Any surviving registration, container,
+project or daemon change, and a record without a stop baseline, keep the record
+and the existing refusals. Fresh-initialization attempt fences are never
+touched.
+
 `src/core/workspace-ensure.ts:workspaceEnsure` is the canonical reconciliation path for both primary and linked checkouts:
 
 1. Resolve the exact checkout and acquire its repository-local lifecycle lock.

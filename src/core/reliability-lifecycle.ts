@@ -47,6 +47,7 @@ import {
   managedStopRouteReferences,
   proveManagedStop,
   recoverManagedStopBaseline,
+  retireStaleManagedRuntimeState,
 } from "./managed-stop-recovery";
 import { findOwnedNetworkClaim } from "./network-claim-lookup";
 import { deriveRecoveryUnit } from "./recovery-budget";
@@ -200,6 +201,20 @@ export function reconcileDrained(record: ReliabilityOperationRecord): void {
   }
 }
 
+/**
+ * A fresh initialization refuses any retained runtime record, so a record whose
+ * runtime was provably deleted out of band is retired before that refusal.
+ */
+function retireStaleRuntimeRecord(
+  identity: ReliabilityIdentity,
+  options: { initializeNew?: boolean; repair?: boolean },
+): void {
+  if (!options.initializeNew || options.repair || identity.provider !== "devsy") return;
+  withDevsyMutationLock("Retire stale managed runtime", identity.repoPath, () =>
+    retireStaleManagedRuntimeState(identity.repoPath, identity.workspace ?? undefined),
+  );
+}
+
 export function preflightRuntimeVariant(
   repoPath: string,
   options: { variant?: string; repair?: boolean },
@@ -341,7 +356,10 @@ export function prepareLifecycleOperation(
     provider: resolveWorkspaceRuntimeOrDefault(repoPath),
   };
   const ids = newLifecycleIds();
-  if (kind === "ensure") assertFreshBootstrapRequest(identity, options);
+  if (kind === "ensure") {
+    retireStaleRuntimeRecord(identity, options);
+    assertFreshBootstrapRequest(identity, options);
+  }
   let fence!: ReliabilityFence;
   const runtimeRunning =
     kind === "exec" ? Boolean(resolveRunningWorkspaceContainer(repoPath)) : false;
@@ -419,7 +437,10 @@ export function prepareManagedLifecycleOperation(input: {
     throw new Error("Managed operation input exceeds its byte limit.");
   if (input.initializeNew && input.kind !== "ensure")
     throw new Error("Initialization intent is valid only for an ensure operation.");
-  if (input.kind === "ensure") assertFreshBootstrapRequest(input.identity, input);
+  if (input.kind === "ensure") {
+    retireStaleRuntimeRecord(input.identity, input);
+    assertFreshBootstrapRequest(input.identity, input);
+  }
   const ids = newLifecycleIds();
   return updateReliabilityOperation(input.identity, (record) => {
     const retained = readManagedRuntimeState(
@@ -1081,7 +1102,10 @@ export async function superviseLifecycle(
     throw new Error("App replacement is an ensure intent.");
   const replacement = preflightAppReplacement(identity, options);
   const copiedOptions = { ...options };
-  if (kind === "ensure") assertFreshBootstrapRequest(identity, options);
+  if (kind === "ensure") {
+    retireStaleRuntimeRecord(identity, options);
+    assertFreshBootstrapRequest(identity, options);
+  }
   const copiedCommand = command ? [...command] : undefined;
   if (kind === "stop") {
     const intent = updateReliabilityOperation(identity, (record): LifecycleStopIntent => {

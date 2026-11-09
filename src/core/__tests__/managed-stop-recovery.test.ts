@@ -26,6 +26,7 @@ import {
   proveManagedStop,
   proveRetainedManagedStop,
   recoverManagedStopBaseline,
+  retireStaleManagedRuntimeState,
   stopFromManagedBaseline,
 } from "../managed-stop-recovery";
 import { inspectNetworkProviderBinding } from "../network-provider-inspect";
@@ -1089,5 +1090,77 @@ describe("explicit replacement population stop recovery", () => {
     expect(() => recoverManagedStopBaseline(state, () => plan, vi.fn())).toThrow();
     expect(readManagedRuntimeState(state.repoPath, state.workspace)).toEqual(previous);
     expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+  });
+});
+
+describe("stale managed runtime record retirement", () => {
+  function deleted() {
+    persist();
+    fixture.missing = true;
+    containers = [];
+    vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation(() => undefined);
+  }
+  it("archives the record of a runtime deleted out of band", () => {
+    deleted();
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const archive = retireStaleManagedRuntimeState(state.repoPath);
+    expect(archive).toBeDefined();
+    expect(path.dirname(archive as string)).toBe(
+      path.join(path.dirname(managedRuntimeStatePath(state.repoPath)), "retired"),
+    );
+    expect(JSON.parse(fs.readFileSync(archive as string, "utf8")).composeProject).toBe(
+      state.composeProject,
+    );
+    expect(readManagedRuntimeState(state.repoPath)).toBeUndefined();
+    expect(String(stderr.mock.calls[0][0])).toContain("Retired stale managed runtime record");
+    expect(fixture.claim).toHaveBeenCalled();
+    stderr.mockRestore();
+  });
+  it("retires when the provider registration was recreated with a new UID", () => {
+    persist();
+    fixture.owner.uid = "abcdefghijklmnop";
+    containers = [];
+    expect(retireStaleManagedRuntimeState(state.repoPath)).toBeDefined();
+    expect(readManagedRuntimeState(state.repoPath)).toBeUndefined();
+  });
+  it.each([
+    "registration",
+    "legacy-registration",
+    "devpod-registration",
+    "container",
+    "project",
+    "daemon",
+    "endpoint",
+  ])("keeps the record when %s evidence remains", (failure) => {
+    deleted();
+    if (failure === "registration") fixture.missing = false;
+    if (failure === "legacy-registration") {
+      fixture.missing = false;
+      fixture.owner.uid = "";
+    }
+    if (failure === "devpod-registration")
+      fixture.competitors = [{ id: state.devpodId, source: { localFolder: "/other" } }];
+    if (failure === "container")
+      vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation(() => {
+        throw new Error("exists");
+      });
+    if (failure === "project")
+      vi.mocked(docker.inspectManagedStopContainers).mockImplementation(() => [
+        structuredClone(containers[0] ?? ({ id: "e".repeat(64) } as never)),
+      ]);
+    if (failure === "daemon") vi.mocked(docker.inspectManagedStopDaemon).mockReturnValue("other");
+    if (failure === "endpoint")
+      vi.mocked(docker.resolveManagedStopEndpoint).mockReturnValue("unix:///other.sock");
+    expect(retireStaleManagedRuntimeState(state.repoPath)).toBeUndefined();
+    expect(readManagedRuntimeState(state.repoPath)).toEqual(state);
+    expect(
+      fs.existsSync(path.join(path.dirname(managedRuntimeStatePath(state.repoPath)), "retired")),
+    ).toBe(false);
+  });
+  it("leaves a record without a stop baseline alone", () => {
+    fixture.missing = true;
+    writeManagedRuntimeState(state);
+    expect(retireStaleManagedRuntimeState(state.repoPath)).toBeUndefined();
+    expect(readManagedRuntimeState(state.repoPath)).toEqual(state);
   });
 });
