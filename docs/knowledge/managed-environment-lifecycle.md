@@ -66,7 +66,7 @@ A retained runtime record whose runtime was deleted out of band does not block
 retired when no provider registration carries its ID with its UID (a recreated
 registration has a new UID), every baselined container is absent on the saved
 Docker daemon and its Compose project has no containers
-(`src/core/managed-stop-recovery.ts:retireStaleManagedRuntimeState`), including the workspace-directory and provider-runner populations. It runs on the CLI and worker paths, never in the capacity controller, and not while an initialization or app-replacement attempt is retained. Retirement
+(`src/core/managed-stop-recovery.ts:retireStaleManagedRuntimeState`), including the workspace-directory and provider-runner populations. It runs on the CLI and worker paths, never in the capacity controller, and never while an app-replacement attempt is retained; `--initialize-new` also skips it while an initialization attempt is retained. Retirement
 moves the record to a `retired/` directory beside the other managed-runtime
 records and prints one diagnostic line. Any surviving registration, container,
 project or daemon change, and a record without a stop baseline, keep the record
