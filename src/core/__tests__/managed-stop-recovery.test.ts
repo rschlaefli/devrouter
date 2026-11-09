@@ -11,6 +11,7 @@ import {
 } from "../devcontainer-profile";
 import * as docker from "../devpod-environment";
 import { listDevpodWorkspacesRaw } from "../devpod-registry";
+import { removeComposeProject } from "../docker-leftovers";
 import { stopRetainedManagedDevsyWorkspace } from "../managed-devsy-stop";
 import { resolveManagedPostStartPlan } from "../managed-post-start";
 import {
@@ -24,8 +25,11 @@ import {
   captureManagedStopBaseline,
   captureReplacedAppStopState,
   proveManagedStop,
+  proveOwnedCheckoutPopulation,
   proveRetainedManagedStop,
   recoverManagedStopBaseline,
+  removeOwnedCheckoutPopulation,
+  retireStaleManagedRuntimeState,
   stopFromManagedBaseline,
 } from "../managed-stop-recovery";
 import { inspectNetworkProviderBinding } from "../network-provider-inspect";
@@ -66,7 +70,11 @@ vi.mock("../devcontainer-profile", () => ({
   inspectManagedDevcontainerGeneratedConfig: vi.fn(),
   managedComposeEnvironment: () => ({ ...process.env }),
 }));
+vi.mock("../docker-leftovers", () => ({ removeComposeProject: vi.fn() }));
 vi.mock("../devpod-environment", () => ({
+  inspectWorkspaceContainers: vi.fn(),
+  workspaceAppContainers: (all: Array<{ mounts: Array<{ Type: string; Source: string }> }>) =>
+    all.filter((c) => c.mounts.some((m) => m.Type === "bind" && m.Source === "/synthetic/repo")),
   assertManagedStopContainersAbsent: vi.fn(),
   inspectProviderRunnerContainers: vi.fn(),
   inspectManagedStopContainers: vi.fn(),
@@ -1089,5 +1097,164 @@ describe("explicit replacement population stop recovery", () => {
     expect(() => recoverManagedStopBaseline(state, () => plan, vi.fn())).toThrow();
     expect(readManagedRuntimeState(state.repoPath, state.workspace)).toEqual(previous);
     expect(docker.stopPinnedManagedContainer).not.toHaveBeenCalled();
+  });
+});
+
+describe("stale managed runtime record retirement", () => {
+  function deleted() {
+    persist();
+    fixture.missing = true;
+    containers = [];
+    vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation(() => undefined);
+  }
+  it("archives the record of a runtime deleted out of band", () => {
+    deleted();
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const archive = retireStaleManagedRuntimeState(state.repoPath);
+    expect(archive).toBeDefined();
+    expect(path.dirname(archive as string)).toBe(
+      path.join(path.dirname(managedRuntimeStatePath(state.repoPath)), "retired"),
+    );
+    expect(JSON.parse(fs.readFileSync(archive as string, "utf8")).composeProject).toBe(
+      state.composeProject,
+    );
+    expect(readManagedRuntimeState(state.repoPath)).toBeUndefined();
+    expect(String(stderr.mock.calls[0][0])).toContain("Retired stale managed runtime record");
+    expect(fixture.claim).toHaveBeenCalled();
+    stderr.mockRestore();
+  });
+  it("retires when the provider registration was recreated with a new UID", () => {
+    persist();
+    fixture.owner.uid = "abcdefghijklmnop";
+    containers = [];
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    expect(retireStaleManagedRuntimeState(state.repoPath)).toBeDefined();
+    expect(readManagedRuntimeState(state.repoPath)).toBeUndefined();
+  });
+  it.each([
+    "registration",
+    "legacy-registration",
+    "devpod-registration",
+    "container",
+    "project",
+    "directory",
+    "runner",
+    "daemon",
+    "endpoint",
+  ])("keeps the record when %s evidence remains", (failure) => {
+    deleted();
+    if (failure === "registration") fixture.missing = false;
+    if (failure === "legacy-registration") {
+      fixture.missing = false;
+      fixture.owner.uid = "";
+    }
+    if (failure === "devpod-registration")
+      fixture.competitors = [{ id: state.devpodId, source: { localFolder: "/other" } }];
+    if (failure === "container")
+      vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation(() => {
+        throw new Error("exists");
+      });
+    if (failure === "project")
+      vi.mocked(docker.inspectManagedStopContainers).mockImplementation(() => [
+        structuredClone(containers[0] ?? ({ id: "e".repeat(64) } as never)),
+      ]);
+    if (failure === "directory")
+      vi.mocked(docker.inspectManagedStopWorkspaceIds).mockReturnValue(["e".repeat(64)]);
+    if (failure === "runner")
+      vi.mocked(docker.inspectProviderRunnerContainers).mockReturnValue(["e".repeat(64)]);
+    if (failure === "daemon") vi.mocked(docker.inspectManagedStopDaemon).mockReturnValue("other");
+    if (failure === "endpoint")
+      vi.mocked(docker.resolveManagedStopEndpoint).mockReturnValue("unix:///other.sock");
+    expect(retireStaleManagedRuntimeState(state.repoPath)).toBeUndefined();
+    expect(readManagedRuntimeState(state.repoPath)).toEqual(state);
+    expect(
+      fs.existsSync(path.join(path.dirname(managedRuntimeStatePath(state.repoPath)), "retired")),
+    ).toBe(false);
+  });
+  it("leaves a record without a stop baseline alone", () => {
+    fixture.missing = true;
+    writeManagedRuntimeState(state);
+    expect(retireStaleManagedRuntimeState(state.repoPath)).toBeUndefined();
+    expect(readManagedRuntimeState(state.repoPath)).toEqual(state);
+  });
+});
+
+describe("explicit delete of a checkout-owned replacement population", () => {
+  const replacementProject = "replacement-project";
+  function replaced() {
+    persist();
+    fixture.owner.uid = "abcdefghijklmnop";
+    fixture.owner.providerName = "docker";
+    containers = containers.map((container) => ({
+      ...container,
+      id: (container.id[0] === "c" ? "e" : "f").repeat(64),
+      labels: { ...container.labels, "com.docker.compose.project": replacementProject },
+    }));
+    vi.mocked(docker.inspectWorkspaceContainers).mockImplementation(() =>
+      structuredClone(containers),
+    );
+  }
+  const pin = () => ({ endpoint, daemonId: "synthetic-daemon" });
+
+  it("is refused by the ordinary stop proof and accepted for explicit delete", () => {
+    fixture.linked = true;
+    state.workspace = "feature";
+    replaced();
+    vi.mocked(docker.assertManagedStopContainersAbsent).mockImplementation(() => undefined);
+    vi.mocked(docker.inspectManagedStopContainers).mockImplementation((project) =>
+      project === replacementProject ? structuredClone(containers) : [],
+    );
+    expect(() => proveManagedStop(state)).toThrow(/remaining workspace population/);
+    expect(proveOwnedCheckoutPopulation(state.repoPath, state.devpodId, pin())).toMatchObject({
+      project: replacementProject,
+      daemonId: "synthetic-daemon",
+      containerIds: containers.map((c) => c.id).sort(),
+    });
+  });
+
+  it.each([
+    "registration",
+    "competitor",
+    "daemon",
+    "endpoint",
+    "foreign-working-dir",
+    "foreign-directory-container",
+    "foreign-runner-container",
+    "no-checkout-mount",
+  ])("refuses %s uncertainty", (failure) => {
+    replaced();
+    if (failure === "registration") fixture.missing = true;
+    if (failure === "competitor")
+      fixture.competitors = [{ id: state.devpodId, source: { localFolder: "/other" } }];
+    if (failure === "daemon") vi.mocked(docker.inspectManagedStopDaemon).mockReturnValue("other");
+    if (failure === "endpoint")
+      vi.mocked(docker.resolveManagedStopEndpoint).mockReturnValue("unix:///other.sock");
+    if (failure === "foreign-working-dir")
+      containers[1].labels["com.docker.compose.project.working_dir"] =
+        "/synthetic/other/.devcontainer";
+    if (failure === "foreign-directory-container")
+      vi.mocked(docker.inspectManagedStopWorkspaceIds).mockReturnValue(["9".repeat(64)]);
+    if (failure === "foreign-runner-container")
+      vi.mocked(docker.inspectProviderRunnerContainers).mockReturnValue(["9".repeat(64)]);
+    if (failure === "no-checkout-mount") containers[0].mounts = [];
+    expect(() => proveOwnedCheckoutPopulation(state.repoPath, state.devpodId, pin())).toThrow();
+  });
+
+  it("removes exactly the proven project and nothing without proof", () => {
+    replaced();
+    vi.mocked(removeComposeProject).mockReturnValue(["removed-container:x"]);
+    expect(removeOwnedCheckoutPopulation(state.repoPath, state.devpodId)).toEqual([
+      "removed-container:x",
+    ]);
+    expect(removeComposeProject).toHaveBeenCalledWith(
+      replacementProject,
+      expect.objectContaining({ endpoint, daemonId: "synthetic-daemon" }),
+      { containerIds: containers.map((c) => c.id).sort() },
+    );
+
+    vi.mocked(removeComposeProject).mockClear();
+    fixture.missing = true;
+    expect(removeOwnedCheckoutPopulation(state.repoPath, state.devpodId)).toBeUndefined();
+    expect(removeComposeProject).not.toHaveBeenCalled();
   });
 });

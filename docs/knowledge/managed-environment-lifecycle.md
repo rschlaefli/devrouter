@@ -61,6 +61,18 @@ stop proofs still apply; the repository owns database semantics. See the
 [fresh initialization contract](../DEVCONTAINER.md#initialize-a-new-disposable-managed-environment)
 for qualified contexts, volume bindings and failure recovery.
 
+A retained runtime record whose runtime was deleted out of band does not block
+`ensure` or `ensure --initialize-new`. Before either proceeds, the record is
+retired when no provider registration carries its ID with its UID (a recreated
+registration has a new UID), every baselined container is absent on the saved
+Docker daemon and its Compose project has no containers
+(`src/core/managed-stop-recovery.ts:retireStaleManagedRuntimeState`), including the workspace-directory and provider-runner populations. It runs on the CLI and worker paths, never in the capacity controller, and never while an app-replacement attempt is retained; `--initialize-new` also skips it while an initialization attempt is retained. Retirement
+moves the record to a `retired/` directory beside the other managed-runtime
+records and prints one diagnostic line. Any surviving registration, container,
+project or daemon change, and a record without a stop baseline, keep the record
+and the existing refusals. Fresh-initialization attempt fences are never
+touched.
+
 `src/core/workspace-ensure.ts:workspaceEnsure` is the canonical reconciliation path for both primary and linked checkouts:
 
 1. Resolve the exact checkout and acquire its repository-local lifecycle lock.
@@ -480,7 +492,7 @@ whose complete historical and provider evidence survives.
 | Command | Effect | Preserved state |
 | --- | --- | --- |
 | `devrouter stop <path>` | Stop the exact primary or linked environment, remove its canonical routes, and prove Traefik unloaded them. | Checkout and linked ownership record. |
-| `devrouter exec <path> -- <command>` | Execute once inside an already-running exact runtime. | All lifecycle state; it does not start or recreate. |
+| `devrouter exec <path> -- <command>` | Execute once inside an already-running exact runtime. When Devsy's recorded result lacks a merged configuration or names a folder other than the primary container's checkout mount, it runs `docker exec --workdir <mount>` (with the remote user and environment from Devsy's merged configuration or the container's metadata label) on that ownership-proven container instead of `devsy workspace exec`; unreadable Devsy records keep the Devsy path. | All lifecycle state; it does not start or recreate. |
 | `devrouter env <path> [-- <command>]` | Report host endpoints, or run a host command with them exported. | Read-only for all lifecycle state. |
 | `devrouter workspace stop <target>` | Reversible stop for the resolved linked owner. | Worktree, branch, and owner record. |
 | `devrouter workspace down <target>` | Delete the exact provider runtime and routes, then remove an unlocked worktree that holds no local state unless retained. | Branch; worktree and record only when explicitly retained or teardown fails before removal. |
@@ -605,7 +617,22 @@ retained generation is unchanged. Every other combination keeps the
 retained-population refusal, so a surviving workload or an adopted replacement is
 never reported as a completed stop. If provider stop
 fails, eligible residual cleanup may still run, but its original failure remains
-nonzero and routes remain intact. This does not change legacy or delete paths.
+nonzero and routes remain intact. This does not change legacy paths.
+
+`stop --delete` is explicit authority to destroy this checkout's runtime, so it
+may adopt a replacement population that the plain-stop refusal rejects. That
+requires the exact provider registration owned by this checkout, one Compose
+project whose containers all carry a working directory inside the checkout and
+whose primary container bind-mounts it, no container of the checkout's Compose
+directory or the provider runner outside that project, and the saved endpoint
+and daemon (`proveOwnedCheckoutPopulation`). Provider stop and delete of a linked
+checkout run with the same workspace token and Git-common-directory environment
+as `up`. If provider delete still fails, `removeOwnedCheckoutPopulation` removes
+exactly the proven container set (provider-created last) and then the project's
+unattached networks through the leftover helpers, after refusing any difference
+between the project population and the proven set. Volumes stay, because
+devrouter's provider delete does not pass `--remove-volumes`. `devsy workspace
+delete --force` then drops the registration. After the stop is settled the retained runtime record is retired as above.
 
 - A Devsy start never performs implicit agent acquisition. Use
   `devrouter setup --yes --workspace-runtime devsy`, and rerun it after a Devsy

@@ -21,17 +21,21 @@ import {
   inspectManagedStopRunnerId,
   inspectManagedStopWorkspaceIds,
   inspectProviderRunnerContainers,
+  inspectWorkspaceContainers,
   resolveManagedStopEndpoint,
   stopPinnedManagedContainer,
+  workspaceAppContainers,
 } from "./devpod-environment";
 import { listDevpodWorkspacesRaw } from "./devpod-registry";
 import { requireReadyDevsyAgent } from "./devsy-agent";
 import { proveLocalDockerSelection } from "./devsy-exec-proof";
 import { inspectDevsyWorkspaceOwnership, listDevsyWorkspaces } from "./devsy-workspaces";
+import { removeComposeProject } from "./docker-leftovers";
 import { proveManagedComposePopulation } from "./managed-compose-population";
 import { resolveManagedPostStartPlan } from "./managed-post-start";
 import {
   type ManagedRuntimeState,
+  managedRuntimeStatePath,
   readManagedRuntimeState,
   writeManagedRuntimeState,
 } from "./managed-runtime-state";
@@ -900,6 +904,205 @@ export function proveManagedStop(state: ManagedRuntimeState): ManagedStopProof {
   )
     throw new Error("Absent stop authority changed during inspection.");
   return { status: "proven-absent", containers: [] };
+}
+
+/**
+ * A provider workspace deleted out of band leaves a retained runtime record
+ * that names a runtime which no longer exists, and that record then blocks
+ * ordinary and fresh-bootstrap ensure. The record is retired only on positive
+ * evidence that nothing it names survives: no provider registration carries
+ * its ID with its UID (a recreated registration has a new UID), every
+ * baselined container is absent on the saved daemon, and its Compose project
+ * has no containers. Any doubt, including unreadable Docker or provider
+ * state, leaves the record untouched. Retirement archives the record beside
+ * its siblings and never touches lifecycle journals or fresh-bootstrap
+ * attempt fences. Caller holds the provider lock.
+ */
+export function retireStaleManagedRuntimeState(
+  repoPath: string,
+  workspace?: string,
+): string | undefined {
+  let state: ManagedRuntimeState | undefined;
+  let baseline: ManagedStopBaseline;
+  try {
+    state = readManagedRuntimeState(repoPath, workspace);
+    if (!state?.stopBaseline) return undefined;
+    baseline = validateManagedStopBaseline(state.stopBaseline, state);
+  } catch {
+    return undefined;
+  }
+  const retained = state;
+  const observe = () => {
+    for (const entries of [
+      listDevsyWorkspaces(),
+      listDevpodWorkspacesRaw({ allowMissingExecutable: true }),
+    ] as { id: string; uid?: string }[][]) {
+      if (
+        entries.some(
+          (entry) =>
+            entry.id === retained.devpodId &&
+            (entry.uid === undefined || entry.uid === "" || entry.uid === baseline.uid),
+        )
+      )
+        throw new Error("The recorded provider registration still exists.");
+    }
+    if (resolveManagedStopEndpoint() !== baseline.endpoint)
+      throw new Error("Stop endpoint changed.");
+    if (inspectManagedStopDaemon(baseline.endpoint) !== baseline.daemonId)
+      throw new Error("Stop daemon changed.");
+    assertManagedStopContainersAbsent(
+      baseline.endpoint,
+      baseline.containers.map((container) => container.id),
+    );
+    if (
+      inspectManagedStopContainers(baseline.project, baseline.endpoint).length !== 0 ||
+      inspectManagedStopWorkspaceIds(baseline.endpoint, baseline.composeDirectory).length !== 0 ||
+      inspectProviderRunnerContainers(
+        baseline.endpoint,
+        managedRunnerId(baseline.uid, baseline.providerId),
+      ).length !== 0
+    )
+      throw new Error("The recorded workspace population still has containers.");
+  };
+  try {
+    observe();
+    if (!isDeepStrictEqual(readManagedRuntimeState(repoPath, workspace), retained))
+      return undefined;
+    observe();
+  } catch {
+    return undefined;
+  }
+  const source = managedRuntimeStatePath(repoPath, workspace);
+  if (!isDeepStrictEqual(readManagedRuntimeState(repoPath, workspace), retained)) return undefined;
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const archive = path.join(
+    path.dirname(source),
+    "retired",
+    `${path.basename(source, ".json")}-${stamp}.json`,
+  );
+  claimLifecycleEffect();
+  fs.mkdirSync(path.dirname(archive), { recursive: true });
+  fs.renameSync(source, archive);
+  process.stderr.write(
+    `Retired stale managed runtime record for '${repoPath}' (Compose project '${retained.composeProject}', provider workspace '${retained.devpodId}'): the recorded runtime no longer exists. Archived at ${archive}.\n`,
+  );
+  return archive;
+}
+
+export type OwnedCheckoutPopulation = {
+  endpoint: string;
+  daemonId: string;
+  project: string;
+  containerIds: string[];
+  registration: ReturnType<typeof identityOf>;
+};
+
+/**
+ * Proves that the whole current workload population of a checkout belongs to
+ * that checkout alone, whatever generation of the provider workspace created
+ * it: the exact provider registration is owned by this checkout, one Compose
+ * project holds a primary container bind-mounting the checkout, every
+ * container of that project and of the checkout's Compose directory carries a
+ * working directory inside the checkout, and the provider runner selects only
+ * those containers. Explicit delete authority, never a plain stop, may adopt
+ * such a replacement population. Caller holds the provider lock.
+ */
+export function proveOwnedCheckoutPopulation(
+  repoPath: string,
+  devpodId: string,
+  pin?: { endpoint: string; daemonId: string },
+): OwnedCheckoutPopulation {
+  const insideCheckout = (directory: string) => {
+    const relative = path.relative(repoPath, directory);
+    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  };
+  const observation = (): OwnedCheckoutPopulation => {
+    const owner = inspectDevsyWorkspaceOwnership(listDevsyWorkspaces(), devpodId, repoPath);
+    if (owner.status !== "owned" || owner.workspace.source.container)
+      throw new Error("Owned delete requires one exact provider registration for this checkout.");
+    if (
+      listDevpodWorkspacesRaw({ allowMissingExecutable: true }).some(
+        (entry) => entry.id === devpodId || sameWorkspacePath(entry.source.localFolder, repoPath),
+      )
+    )
+      throw new Error("Owned delete requires no competing provider registration.");
+    proveLocalDockerSelection(owner.workspace);
+    const endpoint = resolveManagedStopEndpoint();
+    if (pin && pin.endpoint !== endpoint) throw new Error("Stop endpoint changed.");
+    const daemonId = inspectManagedStopDaemon(endpoint);
+    if (pin && pin.daemonId !== daemonId) throw new Error("Stop daemon changed.");
+    const composeDirectory = path.join(repoPath, ".devcontainer");
+    const primaries = workspaceAppContainers(inspectWorkspaceContainers(), repoPath);
+    const projects = new Set(primaries.map((c) => c.labels["com.docker.compose.project"]));
+    const [project] = [...projects];
+    if (projects.size !== 1 || !project)
+      throw new Error("Owned delete requires one Compose project with a primary container.");
+    const members = inspectManagedStopContainers(project, endpoint);
+    const memberIds = new Set(members.map((container) => container.id));
+    if (
+      !primaries.every((container) => memberIds.has(container.id)) ||
+      members.some(
+        (container) =>
+          !insideCheckout(container.labels["com.docker.compose.project.working_dir"] ?? "/"),
+      ) ||
+      !members.some((container) =>
+        container.mounts.some(
+          (mount) => mount.Type === "bind" && sameWorkspacePath(mount.Source, repoPath),
+        ),
+      )
+    )
+      throw new Error("Owned delete population is not provably owned by this checkout.");
+    const runner = managedRunnerId(owner.workspace.uid, devpodId);
+    if (
+      inspectManagedStopWorkspaceIds(endpoint, composeDirectory).some((id) => !memberIds.has(id)) ||
+      inspectProviderRunnerContainers(endpoint, runner).some((id) => !memberIds.has(id))
+    )
+      throw new Error("Owned delete observed containers outside the proven Compose project.");
+    return {
+      endpoint,
+      daemonId,
+      project,
+      containerIds: [...memberIds].sort(),
+      registration: identityOf(owner.workspace),
+    };
+  };
+  const before = observation();
+  const after = observation();
+  if (!isDeepStrictEqual(before, after))
+    throw new Error("Owned delete population changed during inspection.");
+  return after;
+}
+
+/**
+ * Last resort after the provider's own delete failed for a checkout whose
+ * population is provably owned: remove exactly the proven Compose project's
+ * containers, `<project>_` volumes and networks so the caller can then drop
+ * the registration. Returns undefined, with nothing removed, unless the proof
+ * holds. Caller holds the provider lock.
+ */
+export function removeOwnedCheckoutPopulation(
+  repoPath: string,
+  devpodId: string,
+): string[] | undefined {
+  let population: OwnedCheckoutPopulation;
+  try {
+    const retained = readManagedRuntimeState(
+      repoPath,
+      isLinkedWorktree(repoPath) ? resolveWorktreeWorkspace(repoPath) : undefined,
+    );
+    const baseline = retained?.stopBaseline;
+    population = proveOwnedCheckoutPopulation(
+      repoPath,
+      devpodId,
+      baseline ? { endpoint: baseline.endpoint, daemonId: baseline.daemonId } : undefined,
+    );
+  } catch {
+    return undefined;
+  }
+  claimLifecycleEffect();
+  return removeComposeProject(population.project, population, {
+    containerIds: population.containerIds,
+  });
 }
 
 /** Caller holds the workspace and provider locks. Every effect claims the current stop fence. */

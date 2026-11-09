@@ -4,6 +4,32 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `devrouter exec` runs in the container's real workspace folder when Devsy's
+  recorded result has no merged configuration (for example after a failed
+  `postCreateCommand`) or names a different folder. It then executes on the
+  ownership-proven primary container with `docker exec --workdir` instead of
+  failing with an OCI `chdir` error. It uses the remote user and environment
+  from Devsy's merged configuration or the container's metadata label, and
+  refuses when a declared user cannot be resolved. Healthy workspaces and
+  unreadable Devsy records keep the Devsy path.
+- `ensure` and `ensure --initialize-new` retire a stale managed-runtime record
+  automatically once its runtime is provably gone (no matching provider
+  registration, every baselined container and the recorded Compose project
+  absent on the same Docker daemon). The record moves to
+  `managed-runtime/retired/` with a diagnostic line; fresh-initialization
+  attempt fences are preserved.
+- `devrouter stop --delete` deletes a workspace population that Devsy recreated
+  after devrouter recorded its baseline, instead of refusing with "Replacement
+  stop observed a remaining workspace population", when the registration and
+  every container provably belong to the exact checkout. Provider stop and
+  delete of a linked checkout now receive the same workspace environment as
+  `up`. If provider delete still fails, devrouter removes only the proven
+  Compose project's containers and unattached networks (never volumes, because
+  the provider delete it replaces does not remove them) and then force-deletes
+  the registration. Plain `stop` keeps its refusal.
+
 ## [0.6.8] - 2026-11-07
 
 ### Agent Adaptation Prompt

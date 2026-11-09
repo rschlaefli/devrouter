@@ -18,6 +18,7 @@ import { getWorkspaceRegistrySnapshots, resetWorkspaceRuntimeCaches } from "../w
 const paths = vi.hoisted(() => ({ home: "/tmp/devrouter-global-mutation-test" }));
 const childProcessMocks = vi.hoisted(() => ({ devsySpawn: vi.fn() }));
 const temporaryHomes: string[] = [];
+vi.mock("../managed-stop-recovery", () => ({ removeOwnedCheckoutPopulation: vi.fn() }));
 vi.mock("../managed-devsy-stop", () => ({
   restoreRecordedManagedDevcontainerConfig: vi.fn(),
   stopRetainedManagedDevsyWorkspace: vi.fn(),

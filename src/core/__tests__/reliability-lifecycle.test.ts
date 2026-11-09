@@ -30,6 +30,8 @@ const fixture = vi.hoisted(() => ({
   readManagedRuntimeState: vi.fn(),
   proveRetainedManagedStop: vi.fn(),
   recoverManagedStopBaseline: vi.fn(),
+  proveOwnedCheckoutPopulation: vi.fn(),
+  retireStaleManagedRuntimeState: vi.fn(),
   captureManagedAppReplacementProof: vi.fn(),
   absent: false,
   assertRoutesRemoved: vi.fn(),
@@ -101,6 +103,8 @@ vi.mock("../traefik-route-health", () => ({
 vi.mock("../managed-stop-recovery", () => ({
   captureManagedAppReplacementProof: fixture.captureManagedAppReplacementProof,
   recoverManagedStopBaseline: fixture.recoverManagedStopBaseline,
+  proveOwnedCheckoutPopulation: fixture.proveOwnedCheckoutPopulation,
+  retireStaleManagedRuntimeState: fixture.retireStaleManagedRuntimeState,
   managedStopRouteReferences: () => [],
   proveManagedStop: (...args: unknown[]) => ({
     status: fixture.absent ? "proven-absent" : "retained",
@@ -444,6 +448,8 @@ beforeEach(() => {
   }
   fixture.initialAbsence.mockReset();
   fixture.recoverManagedStopBaseline.mockReset();
+  fixture.proveOwnedCheckoutPopulation.mockReset();
+  fixture.retireStaleManagedRuntimeState.mockReset();
   fixture.proveRetainedManagedStop.mockReset();
   fixture.absent = false;
   fixture.assertRoutesRemoved.mockReset();
@@ -2000,6 +2006,56 @@ describe("reliability lifecycle supervision", () => {
       expect(fixture.recoverManagedStopBaseline).not.toHaveBeenCalled();
       expect(saved).toBe(retained);
     }
+  });
+
+  describe("replacement population that the retained proof refuses", () => {
+    async function seedRefusedReplacement(deleteIntent: boolean) {
+      setProcessConnected(true);
+      const seeded = await seedStopRequest();
+      const retained = { repoPath: seeded.identity.repoPath, stopBaseline: { version: 1 } };
+      fixture.readManagedRuntimeState.mockReturnValue(retained);
+      fixture.proveRetainedManagedStop.mockImplementation(() => {
+        throw new Error("Replacement stop observed a remaining workspace population.");
+      });
+      seeded.request.options.delete = deleteIntent;
+      return seeded;
+    }
+
+    it("lets explicit delete proceed on proof of checkout ownership, then retires the record", async () => {
+      const { lifecycle, request } = await seedRefusedReplacement(true);
+      fixture.proveOwnedCheckoutPopulation.mockReturnValue({ project: "replacement" });
+      const stop = vi.fn(async () => {
+        fixture.proveRetainedManagedStop.mockReturnValue([]);
+        fixture.absent = true;
+        lifecycle.proveLifecycleStopped();
+        return "deleted";
+      });
+      await expect(lifecycle.executeLifecycleWorker(request, stop)).resolves.toBe("deleted");
+      expect(fixture.retireStaleManagedRuntimeState).toHaveBeenCalledOnce();
+    });
+
+    it("keeps the refusal for explicit delete without ownership proof", async () => {
+      const { lifecycle, request } = await seedRefusedReplacement(true);
+      fixture.proveOwnedCheckoutPopulation.mockImplementation(() => {
+        throw new Error("not owned");
+      });
+      const stop = vi.fn(async () => "deleted");
+      await expect(lifecycle.executeLifecycleWorker(request, stop)).rejects.toThrow(
+        /remaining workspace population/,
+      );
+      expect(stop).not.toHaveBeenCalled();
+    });
+
+    it("keeps the refusal for a plain stop", async () => {
+      const { lifecycle, request } = await seedRefusedReplacement(false);
+      fixture.proveOwnedCheckoutPopulation.mockReturnValue({ project: "replacement" });
+      const stop = vi.fn(async () => "stopped");
+      await expect(lifecycle.executeLifecycleWorker(request, stop)).rejects.toThrow(
+        /remaining workspace population/,
+      );
+      expect(fixture.proveOwnedCheckoutPopulation).not.toHaveBeenCalled();
+      expect(stop).not.toHaveBeenCalled();
+    });
   });
 
   it.each([

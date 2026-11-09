@@ -46,7 +46,9 @@ import {
   captureManagedAppReplacementProof,
   managedStopRouteReferences,
   proveManagedStop,
+  proveOwnedCheckoutPopulation,
   recoverManagedStopBaseline,
+  retireStaleManagedRuntimeState,
 } from "./managed-stop-recovery";
 import { findOwnedNetworkClaim } from "./network-claim-lookup";
 import { deriveRecoveryUnit } from "./recovery-budget";
@@ -111,6 +113,7 @@ let lockHeld = false;
 let stopProjects: string[] = [];
 let initialStopAbsence: ReturnType<typeof proveInitialManagedDevsyAbsence>;
 let stopBaselineState: ManagedRuntimeState | undefined;
+let deletedOwnedReplacement = false;
 
 const BUSY_LIFECYCLE_WAIT_MS = 30 * 60 * 1000;
 const BUSY_LIFECYCLE_POLL_MS = 250;
@@ -198,6 +201,30 @@ export function reconcileDrained(record: ReliabilityOperationRecord): void {
     });
     record.worker = null;
   }
+}
+
+/**
+ * A fresh initialization refuses any retained runtime record, so a record whose
+ * runtime was provably deleted out of band is retired before that refusal. It runs
+ * only on the CLI path, never inside the capacity controller's event loop,
+ * because it waits on the provider lock.
+ */
+function retireStaleRuntimeRecord(
+  identity: ReliabilityIdentity,
+  options: { initializeNew?: boolean; repair?: boolean },
+): void {
+  if (!options.initializeNew || options.repair || identity.provider !== "devsy") return;
+  // Retire only when the record is the sole remaining blocker: an initialization
+  // attempt, an app-replacement attempt or a missing declaration keep their own refusals.
+  if (
+    !loadRepoConfig(identity.repoPath).managedRuntime?.devcontainer.freshBootstrap ||
+    readReliabilityOperation(identity)?.freshBootstrap ||
+    readAppReplacementAttempt(identity)
+  )
+    return;
+  withDevsyMutationLock("Retire stale managed runtime", identity.repoPath, () =>
+    retireStaleManagedRuntimeState(identity.repoPath, identity.workspace ?? undefined),
+  );
 }
 
 export function preflightRuntimeVariant(
@@ -341,7 +368,10 @@ export function prepareLifecycleOperation(
     provider: resolveWorkspaceRuntimeOrDefault(repoPath),
   };
   const ids = newLifecycleIds();
-  if (kind === "ensure") assertFreshBootstrapRequest(identity, options);
+  if (kind === "ensure") {
+    retireStaleRuntimeRecord(identity, options);
+    assertFreshBootstrapRequest(identity, options);
+  }
   let fence!: ReliabilityFence;
   const runtimeRunning =
     kind === "exec" ? Boolean(resolveRunningWorkspaceContainer(repoPath)) : false;
@@ -1081,7 +1111,10 @@ export async function superviseLifecycle(
     throw new Error("App replacement is an ensure intent.");
   const replacement = preflightAppReplacement(identity, options);
   const copiedOptions = { ...options };
-  if (kind === "ensure") assertFreshBootstrapRequest(identity, options);
+  if (kind === "ensure") {
+    retireStaleRuntimeRecord(identity, options);
+    assertFreshBootstrapRequest(identity, options);
+  }
   const copiedCommand = command ? [...command] : undefined;
   if (kind === "stop") {
     const intent = updateReliabilityOperation(identity, (record): LifecycleStopIntent => {
@@ -1911,7 +1944,22 @@ export async function executeLifecycleWorker<T>(
                     markStopWorkStarted,
                   )
                 : retained;
-              proveManagedStop(candidate);
+              try {
+                proveManagedStop(candidate);
+              } catch (error) {
+                // Explicit delete authority may destroy a replacement population
+                // that is provably this checkout's own; a plain stop never adopts one.
+                if (!request.options.delete || !candidate.stopBaseline) throw error;
+                try {
+                  proveOwnedCheckoutPopulation(candidate.repoPath, candidate.devpodId, {
+                    endpoint: candidate.stopBaseline.endpoint,
+                    daemonId: candidate.stopBaseline.daemonId,
+                  });
+                } catch {
+                  throw error;
+                }
+                deletedOwnedReplacement = true;
+              }
               return candidate;
             },
           );
@@ -2161,6 +2209,10 @@ export function proveLifecycleStopped(): void {
         });
       });
     }
+    // A deleted replacement leaves a record naming a runtime that no longer
+    // exists; once the stop is settled, the same absence evidence retires it.
+    if (deletedOwnedReplacement)
+      retireStaleManagedRuntimeState(request.repoPath, request.identity.workspace ?? undefined);
   };
   if (stopBaselineState || initialStopAbsence)
     withDevsyMutationLock("Settle managed stop", request.repoPath, settle);

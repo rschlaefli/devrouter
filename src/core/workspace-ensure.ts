@@ -27,7 +27,10 @@ import {
 } from "./devpod-environment";
 import { DevpodStartPostconditionError, startDevpodWorkspace } from "./devpod-mutation";
 import { listDevpodWorkspaces, selectDevpodWorkspace } from "./devpod-workspaces";
-import { withMutationLockAsync as withDevsyMutationLock } from "./devsy-mutation";
+import {
+  withMutationLockAsync as withDevsyMutationLock,
+  withMutationLock as withDevsyMutationLockSync,
+} from "./devsy-mutation";
 import { createStderrWaitReporter, withFileLock } from "./file-lock";
 import { detectHostPortClaimConflicts, type HostPortClaimConflict } from "./host-port-claims";
 import {
@@ -60,6 +63,7 @@ import {
   captureReplacedAppStopState,
   type ManagedAppReplacementProof,
   proveRetainedManagedStop,
+  retireStaleManagedRuntimeState,
 } from "./managed-stop-recovery";
 import { inspectLegacyNetworkCapacity } from "./network-diagnostics";
 import { networkDockerOptions, withNetworkEffectGuard } from "./network-effect-scope";
@@ -1086,6 +1090,18 @@ export async function workspaceEnsure(
         : linked
           ? resolveLinkedTarget(repoPath)
           : resolvePrimaryTarget(repoPath);
+      if (
+        !options.repair &&
+        resolveWorkspaceRuntimeOrDefault(repoPath) === "devsy" &&
+        !readAppReplacementAttempt({
+          repoPath,
+          workspace: target.workspace ?? null,
+          provider: "devsy",
+        })
+      )
+        withDevsyMutationLockSync("Retire stale managed runtime", repoPath, () =>
+          retireStaleManagedRuntimeState(repoPath, target.workspace),
+        );
       let devpodId = target.devpodId;
       if (options.initializeNew) {
         assertFreshBootstrapRequest(
