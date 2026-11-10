@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [0.6.9] - 2026-11-10
+
+### Agent Adaptation Prompt
+
+Agent adaptation prompt: ./upgrade-prompts/0.6.9.md
+
 ### Fixed
 
 - `exec` on a Devsy runtime targets the exact running workspace container, so
