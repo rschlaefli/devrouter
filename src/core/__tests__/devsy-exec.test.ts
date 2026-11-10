@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveRunningWorkspaceContainer } from "../devpod-environment";
 import { devsyExec, devsyExecOutcome } from "../devsy-exec";
 import { revalidateDevsyExecProof } from "../devsy-exec-proof";
 import { listDevsyWorkspaces, selectDevsyWorkspace } from "../devsy-workspaces";
@@ -8,6 +9,7 @@ import type { ExecutionOutcomeError } from "../execution-outcome";
 import { withWorkspaceLifecycleLock } from "../workspace";
 
 vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
+vi.mock("../devpod-environment", () => ({ resolveRunningWorkspaceContainer: vi.fn() }));
 vi.mock("../devsy-exec-proof", () => ({ revalidateDevsyExecProof: vi.fn() }));
 vi.mock("../devsy-mutation", () => ({
   withMutationLock: (_activity: string, _target: string, operation: () => unknown) => operation(),
@@ -33,10 +35,14 @@ function mockExecExit(code: number | null, signal: string | null = null): void {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(resolveRunningWorkspaceContainer).mockReturnValue({
+    id: "container-id",
+    workspacePath: "/workspaces/configured",
+  });
 });
 
 describe("devsyExec", () => {
-  it("selects the exact path-owned workspace and forwards the remote exit code", async () => {
+  it("targets the exact running container and forwards the remote exit code", async () => {
     const workspaces = [
       { id: "guessed-name", source: { localFolder: "/other" } },
       { id: "actual-id", source: { localFolder: "/repo" } },
@@ -51,7 +57,17 @@ describe("devsyExec", () => {
     expect(withWorkspaceLifecycleLock).toHaveBeenCalledWith("/repo", expect.any(Function));
     expect(spawn).toHaveBeenCalledWith(
       "devsy",
-      ["workspace", "exec", "--result-format", "plain", "actual-id", "--", "pnpm", "seed"],
+      [
+        "workspace",
+        "exec",
+        "--result-format",
+        "plain",
+        "--container-id",
+        "container-id",
+        "--",
+        "pnpm",
+        "seed",
+      ],
       { stdio: "inherit" },
     );
   });
@@ -59,6 +75,19 @@ describe("devsyExec", () => {
   it("fails without execution when the exact workspace is absent", async () => {
     vi.mocked(listDevsyWorkspaces).mockReturnValue([]);
     vi.mocked(selectDevsyWorkspace).mockReturnValue(undefined);
+
+    await expect(devsyExec("/repo", ["pnpm", "seed"])).rejects.toThrow("devrouter ensure /repo");
+
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("fails without execution when no single running container is proved", async () => {
+    const workspace = { id: "actual-id", source: { localFolder: "/repo" } };
+    vi.mocked(listDevsyWorkspaces).mockReturnValue([workspace]);
+    vi.mocked(selectDevsyWorkspace).mockReturnValue(workspace);
+    vi.mocked(resolveRunningWorkspaceContainer).mockImplementation(() => {
+      throw new Error("Expected one running workspace app container for '/repo', found 0.");
+    });
 
     await expect(devsyExec("/repo", ["pnpm", "seed"])).rejects.toThrow("devrouter ensure /repo");
 
@@ -166,7 +195,8 @@ describe("retained Devsy execution", () => {
         "plain",
         "--context",
         "default",
-        "actual-id",
+        "--container-id",
+        proof.containerId,
         "--",
         "tool",
         "a b",

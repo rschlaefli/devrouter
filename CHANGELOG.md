@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `exec` on a Devsy runtime targets the exact running workspace container, so
+  commands start in a Compose service's configured `workspaceFolder` instead of
+  Devsy's `/workspaces/<id>` default.
+
 ## [0.6.8] - 2026-11-07
 
 ### Agent Adaptation Prompt
