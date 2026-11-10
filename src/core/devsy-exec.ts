@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { resolveRunningWorkspaceContainer } from "./devpod-environment";
 import { type DevsyExecProof, revalidateDevsyExecProof } from "./devsy-exec-proof";
 import { withMutationLock } from "./devsy-mutation";
 import { listDevsyWorkspaces, selectDevsyWorkspace } from "./devsy-workspaces";
@@ -11,6 +12,14 @@ import { claimLifecycleEffect, withLifecycleOperationLock } from "./reliability-
 
 function ensureGuidance(repoPath: string): string {
   return `Run 'devrouter ensure ${repoPath}' first.`;
+}
+
+function runningContainerId(repoPath: string): string {
+  try {
+    return resolveRunningWorkspaceContainer(repoPath).id;
+  } catch (error) {
+    throw new Error(`${errorMessage(error)} ${ensureGuidance(repoPath)}`);
+  }
 }
 
 function devsyUnknownMessage(outcome: ExecutionOutcome): string {
@@ -42,16 +51,13 @@ export async function devsyExecOutcome(
 
     // Devsy resolves the workspace folder and remote user itself and forwards
     // the remote exit code as its own, so no status-marker wrapping is needed.
-    const args = [
-      "workspace",
-      "exec",
-      "--result-format",
-      "plain",
-      ...(retainedProof ? ["--context", retainedProof.context] : []),
-      retainedProof?.id ?? workspace.id,
-      "--",
-      ...command,
-    ];
+    // Addressed by workspace name, Devsy assumes /workspaces/<id> and ignores a
+    // Compose service's configured workspaceFolder; addressed by the exact
+    // running container, it reads the folder from that container's metadata.
+    const target = retainedProof
+      ? ["--context", retainedProof.context, "--container-id", retainedProof.containerId]
+      : ["--container-id", runningContainerId(repoPath)];
+    const args = ["workspace", "exec", "--result-format", "plain", ...target, "--", ...command];
 
     return new Promise<ExecutionOutcome>((resolve, reject) => {
       let child: ReturnType<typeof spawn>;
