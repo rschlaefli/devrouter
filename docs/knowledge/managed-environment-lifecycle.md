@@ -467,7 +467,9 @@ prevention.
 ## Stop, delete, and inspect
 
 If managed startup is interrupted before a runtime baseline exists, initial stop
-uses the current drained ensure's profile from operation history. Combined
+uses the latest drained ensure's profile from operation history. Later exec
+operations are allowed only when each is completed, drained and records the
+same profile; the current operation must match the final unique history entry. Combined
 selections pass through the normal profile resolver for canonical comparison;
 the raw journal authority remains unchanged. It requires
 no remaining worker, stopping intent, the exact selected service population,
