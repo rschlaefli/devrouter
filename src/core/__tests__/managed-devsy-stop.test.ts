@@ -692,6 +692,78 @@ describe("interrupted initial managed Devsy start", () => {
     expect(configChecks.every(([options]) => options.endpoint === endpoint)).toBe(true);
   });
 
+  function appendCompletedExec(interrupted = true) {
+    let model = createReliabilityState("chat-env", 1, "manual");
+    const advance = (event: ModelInput) => {
+      const result = stepChatModel(model, event);
+      expect(result.outcome).not.toBe("blocked");
+      model = result.state;
+    };
+    const request = {
+      type: "operation-request" as const,
+      kind: "ensure" as const,
+      key: "initial-ensure",
+      operationId: "initial-ensure",
+      profile: recordedSelection,
+      consumer: { id: "chat-agent", requiredCapabilities: ["api"], pinned: false },
+      runtimeRunning: false,
+    };
+    advance(request);
+    advance({ type: "dispatch" });
+    advance({ type: "dispatch-persisted", operationId: request.operationId });
+    advance({ type: "launched", operationId: request.operationId });
+    advance(
+      interrupted
+        ? { type: "interrupted", operationId: request.operationId }
+        : { type: "completion", operationId: request.operationId, exitCode: 1 },
+    );
+    advance({ type: "drained", operationId: request.operationId });
+    advance({
+      ...request,
+      kind: "exec",
+      key: "exec-after-ensure",
+      operationId: "exec-after-ensure",
+      runtimeRunning: true,
+      recoverInterruptedEnsure: true,
+    });
+    advance({ type: "dispatch" });
+    advance({ type: "dispatch-persisted", operationId: "exec-after-ensure" });
+    advance({ type: "launched", operationId: "exec-after-ensure" });
+    advance({ type: "completion", operationId: "exec-after-ensure", exitCode: 0 });
+    advance({ type: "drained", operationId: "exec-after-ensure" });
+    advance({ type: "stop" });
+    record.state = model;
+  }
+
+  it.each([
+    true,
+    false,
+  ])("stops after recovery exec with interrupted=%s without rewriting history", (interrupted) => {
+    appendCompletedExec(interrupted);
+    const history = structuredClone(record.state.operationHistory);
+    expect(run()).toBe(true);
+    expect(stopPinnedManagedContainer).toHaveBeenCalledTimes(chatServices.length);
+    expect(record.state.operationHistory).toEqual(history);
+    expect(containers.every((c) => !c.state.Running)).toBe(true);
+  });
+
+  it.each([
+    "undrained",
+    "interrupted",
+    "changed-profile",
+    "duplicate-id",
+  ])("refuses %s exec history after an initial ensure", (reason) => {
+    appendCompletedExec();
+    const last = record.state.operationHistory.at(-1)!;
+    if (reason === "undrained") last.drained = false;
+    if (reason === "interrupted") last.status = "INTERRUPTED";
+    if (reason === "changed-profile") last.profile = "manage";
+    if (reason === "duplicate-id")
+      record.state.operationHistory.unshift({ ...record.state.operationHistory[0] });
+    record.state.operation = { ...last };
+    refuse(() => {});
+  });
+
   it("leaves unmanaged provider stop to its existing caller", () => {
     vi.mocked(loadRepoConfig).mockReturnValue({ apps: [] } as never);
     expect(run()).toBe(false);

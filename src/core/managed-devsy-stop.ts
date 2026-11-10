@@ -160,29 +160,47 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
   const linked = isLinkedWorktree(repoPath);
   const workspace = linked ? resolveWorktreeWorkspace(repoPath) : undefined;
   const identity = { repoPath, workspace: workspace ?? null, provider: "devsy" as const };
-  // Stop clears active selection, but the current ensure history retains its
-  // profile. Journal counters may advance as this stop claims its own effects.
+  // Exec does not change the provider population. Its completed journal entry
+  // can follow a failed initial ensure before stop is requested.
   const readAuthority = () => {
     const record = readReliabilityOperation(identity);
     const operation = record?.state.operation;
-    const entries = record?.state.operationHistory.filter((entry) => entry.id === operation?.id);
-    const entry = entries?.[0];
+    const history = record?.state.operationHistory ?? [];
+    const entries = history.filter((entry) => entry.id === operation?.id);
+    const current = entries[0];
+    const ensureIndex = history.map((entry) => entry.kind).lastIndexOf("ensure");
+    const entry = history[ensureIndex];
+    const trailing = history.slice(ensureIndex + 1);
     if (
       !record ||
       !isDeepStrictEqual(record.identity, identity) ||
       record.worker ||
       !operation ||
-      operation.kind !== "ensure" ||
+      !["ensure", "exec"].includes(operation.kind) ||
       !operation.drained ||
       !["COMPLETED", "INTERRUPTED", "COMPLETION_UNKNOWN"].includes(operation.status) ||
       record.state.phase !== "stopping" ||
       record.state.desired !== "stopped-by-user" ||
-      entries?.length !== 1 ||
+      entries.length !== 1 ||
+      !current ||
+      current !== history.at(-1) ||
+      current.kind !== operation.kind ||
+      current.status !== operation.status ||
+      current.drained !== operation.drained ||
+      current.exitCode !== operation.exitCode ||
       !entry ||
       entry.kind !== "ensure" ||
       !entry.profile ||
       !entry.drained ||
-      entry.status !== operation.status
+      !["COMPLETED", "INTERRUPTED", "COMPLETION_UNKNOWN"].includes(entry.status) ||
+      new Set(history.map((item) => item.id)).size !== history.length ||
+      trailing.some(
+        (item) =>
+          item.kind !== "exec" ||
+          !item.drained ||
+          item.status !== "COMPLETED" ||
+          item.profile !== entry.profile,
+      )
     )
       throw new Error("Initial managed stop requires the drained ensure's recorded profile.");
     return {
@@ -190,6 +208,7 @@ function stopInitialManagedDevsyWorkspace(repoPath: string, devsyId: string): bo
       fence: reliabilityFence(record.state),
       operation,
       entry,
+      trailing,
     };
   };
   const authority = readAuthority();
