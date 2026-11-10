@@ -151,6 +151,10 @@ if (command === 'devsy' && args[0] === 'workspace' && args[1] === 'exec' && args
  if (args[5] !== 'default') fail();
  args.splice(4,2);
 }
+if (command === 'devsy' && args[0] === 'workspace' && args[1] === 'exec' && args[4] === '--container-id') {
+ if (args[5] !== containerId) fail();
+ args.splice(4,2,workspaceId);
+}
 if (command === 'devpod' && args[0] === 'version') { console.log('fixture'); }
 else if (command === 'devsy' && args[0] === '--version') { console.log('fixture'); }
 else if (command === 'devpod' && args.join(' ') === 'list --output json --skip-pro') { output(state.provider === 'devpod' && !state.registrationAbsent ? [{id:workspaceId,source:{localFolder:state.repo}}] : []); }
